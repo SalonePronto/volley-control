@@ -13,8 +13,8 @@ def inject_calendar_css():
     [class*="st-key-vcrow_"] {background:#fff;border:1px solid #dbe6f0;border-radius:10px;padding:6px 9px;margin-bottom:5px;box-shadow:0 1px 2px rgba(25,52,78,.04);}
     [class*="st-key-vcrow_"] [data-testid="stColumn"] {min-width:0;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {gap:.45rem;}
-    [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:0;}
-    [class*="st-key-vcrow_"] [data-testid="stElementContainer"]:has(.vc-two-line) {height:auto!important;min-height:69px;}
+    [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:3px!important;}
+    [class*="st-key-vcrow_"] [data-testid="stElementContainer"]:has(.vc-two-line) {height:auto!important;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {min-height:73px;flex-wrap:nowrap!important;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 190px!important;width:190px!important;min-width:190px!important;}
@@ -30,13 +30,13 @@ def inject_calendar_css():
     .vc-two-line .vc-away {color:#246699;}
     .vc-two-line .vc-ready {color:#16704b;}
     .vc-right-status {display:flex;justify-content:center;align-items:center;text-align:center;
-        box-sizing:border-box;padding:3px 6px;min-height:34px;margin-bottom:4px;
+        box-sizing:border-box;width:100%;padding:3px 6px;min-height:34px;margin:3px 0 0;
         border-radius:8px;font-size:.71rem;font-weight:850;line-height:1.2;
-        overflow-wrap:anywhere;white-space:normal;}
+        overflow-wrap:anywhere;white-space:normal;position:static!important;}
     .vc-right-status.missing {background:#ffe04b;color:#292000;border:2px solid #c99a00;}
     .vc-right-status.ready {background:#e1f4e8;color:#17633f;border:1px solid #c6e6d2;}
     .vc-right-status.away {background:#e5f0fa;color:#1b557f;border:1px solid #d0e3f3;}
-    [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {min-width:92px!important;min-height:34px!important;height:34px!important;width:100%!important;padding:0 4px!important;border-radius:8px!important;font-size:.77rem!important;font-weight:700!important;white-space:nowrap!important;}
+    [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {min-width:92px!important;min-height:32px!important;height:32px!important;width:100%!important;padding:0 4px!important;border-radius:8px!important;font-size:.77rem!important;font-weight:700!important;white-space:nowrap!important;position:static!important;}
     [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] {flex-wrap:nowrap!important;}
     [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
     [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 190px!important;width:190px!important;min-width:190px!important;}
@@ -44,7 +44,7 @@ def inject_calendar_css():
     </style>""",unsafe_allow_html=True)
 
 
-UI_RELEASE = "2026-10-26.6"
+UI_RELEASE = "2026-10-26.7"
 
 
 WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
@@ -82,17 +82,18 @@ def compact_game_row(game, assigned, status, staff, on_open):
     with st.container(border=False, key="vcrow_" + short):
         left, right = st.columns([9, 1.8], vertical_alignment="center", gap="small")
         with left:
-            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.6" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
+            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.7" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
                         '</div><div class="vc-line-2">' + bottom +
                         '</div><div class="vc-line-3">' + staff_line + '</div></div></div>',
                         unsafe_allow_html=True)
         with right:
-            status_type = "away" if status == "Trasferta" else "ready" if status == "Completa" else "missing"
-            st.markdown(f'<div class="vc-right-status {status_type}" role="status">{_e(status)}</div>',
-                        unsafe_allow_html=True)
+            # Button must be above the yellow/neutral availability notice.
             if st.button("Vedi scheda", key="vcopen_" + short,
                          help="Apri la scheda completa", use_container_width=True):
                 on_open(game["game_key"])
+            status_type = "away" if status == "Trasferta" else "ready" if status == "Completa" else "missing"
+            st.markdown(f'<div class="vc-right-status {status_type}" role="status">{_e(status)}</div>',
+                        unsafe_allow_html=True)
 
 
 def week_tabs(weeks, selected_week):
