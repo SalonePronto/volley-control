@@ -219,7 +219,7 @@ def show_game(key):
     subtitle = escape(f"{d:%d/%m/%Y} · {game['time']} · {game['category']}")
     st.markdown(
         '<div style="background:linear-gradient(115deg,#e7f1fb,#f8fbff);border:1px solid #d6e4f1;'
-        'border-radius:14px;padding:16px 18px;margin-bottom:12px;overflow-wrap:anywhere">'
+        'border-radius:14px;padding:12px 14px;margin-bottom:9px;overflow-wrap:anywhere">'
         f'<div style="font-size:.8rem;color:#466985;font-weight:700">{subtitle}</div>'
         f'<div style="font-weight:800;font-size:1.2rem;color:#193b5c;margin:5px 0">{home} – {away}</div>'
         '</div>', unsafe_allow_html=True)

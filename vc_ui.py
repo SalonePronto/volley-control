@@ -14,17 +14,21 @@ def inject_calendar_css():
     [class*="st-key-vcrow_"] [data-testid="stColumn"] {min-width:0;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {gap:.45rem;}
     [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:0;}
-    .vc-two-line {width:100%;min-width:0;overflow:hidden;}
-    .vc-line-1,.vc-line-2 {display:grid;align-items:center;gap:11px;height:20px;width:100%;min-width:0;font-size:.77rem;line-height:20px;color:#4c647b;}
-    .vc-line-1 {grid-template-columns:minmax(0,1.18fr) minmax(0,.98fr) minmax(0,3.9fr) minmax(0,1.35fr);}
-    .vc-line-2 {grid-template-columns:minmax(0,3.5fr) minmax(0,1.55fr) minmax(0,1.65fr) minmax(0,1.65fr);}
-    .vc-two-line span {display:block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+    .vc-two-line {width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;}
+    .vc-lines {width:max-content;min-width:100%;}
+    .vc-line-1,.vc-line-2 {display:grid;align-items:center;gap:14px;height:23px;width:100%;font-size:.8rem;line-height:23px;color:#4c647b;}
+    .vc-line-1 {grid-template-columns:max-content max-content minmax(max-content,1fr) max-content;}
+    .vc-line-2 {grid-template-columns:minmax(max-content,1fr) max-content max-content max-content;}
+    .vc-two-line span {display:block;white-space:nowrap;}
     .vc-two-line .vc-strong {font-weight:750;color:#193b5c;}
     .vc-two-line .vc-state {font-weight:780;color:#aa6a14;}
     .vc-two-line .vc-away {color:#246699;}
     .vc-two-line .vc-ready {color:#16704b;}
     [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {min-width:92px!important;min-height:34px!important;height:34px!important;width:100%!important;padding:0 4px!important;border-radius:8px!important;font-size:.77rem!important;font-weight:700!important;white-space:nowrap!important;}
-    @media(max-width:680px) {.vc-two-line {overflow-x:auto;}.vc-line-1,.vc-line-2 {min-width:660px;}}
+    [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] {flex-wrap:nowrap!important;}
+    [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
+    [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 112px!important;width:112px!important;min-width:112px!important;}
+    .vc-two-line span + span {border-left:1px solid #e5edf4;padding-left:14px;}
     </style>""",unsafe_allow_html=True)
 
 
@@ -62,8 +66,8 @@ def compact_game_row(game, assigned, status, staff, on_open):
     with st.container(border=False, key="vcrow_" + short):
         left, right = st.columns([9, 1.15], vertical_alignment="center", gap="small")
         with left:
-            st.markdown('<div class="vc-two-line"><div class="vc-line-1">' + top +
-                        '</div><div class="vc-line-2">' + bottom + '</div></div>',
+            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.1" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
+                        '</div><div class="vc-line-2">' + bottom + '</div></div></div>',
                         unsafe_allow_html=True)
         with right:
             if st.button("Vedi scheda", key="vcopen_" + short,

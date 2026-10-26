@@ -7,9 +7,9 @@ from vc_people import ROLES, team_staff, assign, cancel, assignments_for_games
 
 def inject_sheet_css():
     st.markdown("""<style>
-    div[data-testid="stDialog"] div[role="dialog"] {max-width:950px;}
+    div[data-testid="stDialog"] div[role="dialog"] {max-width:850px;}
     .vc-info {border:1px solid #dae5ee;background:#fff;border-radius:12px;
-      padding:12px 14px;margin-bottom:9px;overflow-wrap:anywhere;min-height:92px;}
+      padding:9px 11px;margin-bottom:6px;overflow-wrap:anywhere;}
     .vc-info-title {font-size:.73rem;text-transform:uppercase;letter-spacing:.03em;
       font-weight:800;color:#557188;margin-bottom:6px;}
     .vc-info-main {font-size:.96rem;font-weight:750;color:#193b5c;line-height:1.35;}
@@ -80,15 +80,19 @@ def render_game_people(engine, game, organizer=False, viewer=None, persistent=Fa
                 with left:
                     st.markdown(f"**{title}:** Posto libero")
                 with right:
-                    if persistent and viewer and viewer.get("wants_" + role):
-                        if st.button("Prenotami", key=f"book_{key}_{role}_{slot}",
-                                     use_container_width=True):
-                            try:
-                                assign(engine, key, role, viewer["id"], actor=viewer["id"],
-                                       source="self", slot=slot)
-                                st.rerun()
-                            except ValueError as exc:
-                                st.error(str(exc))
+                    allowed = bool(persistent and viewer and viewer.get("approved")
+                                   and viewer.get("wants_" + role))
+                    reason = ("Database condiviso non ancora configurato" if not persistent
+                              else "Accedi con un account approvato e abilitato al ruolo")
+                    if st.button("Mi prenoto", key=f"book_{key}_{role}_{slot}",
+                                 disabled=not allowed, help=None if allowed else reason,
+                                 use_container_width=True):
+                        try:
+                            assign(engine, key, role, viewer["id"], actor=viewer["id"],
+                                   source="self", slot=slot)
+                            st.rerun()
+                        except ValueError as exc:
+                            st.error(str(exc))
     if not persistent:
         st.caption("Prenotazioni disattivate finché non sarà attivo il database condiviso.")
     elif not viewer and not organizer:
