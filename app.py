@@ -21,7 +21,7 @@ import vc_pgs as _pgs
 if "team" not in inspect.signature(_pgs.normalize_pgs).parameters:
     importlib.reload(_pgs)
 import vc_ui as _ui
-if getattr(_ui, "UI_RELEASE", "") != "2026-10-26.16":
+if getattr(_ui, "UI_RELEASE", "") != "2026-10-26.17":
     importlib.reload(_ui)
 
 from vc_core import (DISPLAY_FIELDS, FIPAV_TEAMS, PGS_TEAM, PGS_TEAMS, coverage, download_fipav,
@@ -32,7 +32,9 @@ from vc_people import init_people, apply_fixed, assignments_for_games
 from vc_view_people import render_person_access
 from vc_view_admin import render_club_admin
 from vc_view_game import render_game_people, assignment_status, role_names
-from vc_ui import inject_calendar_css, compact_game_row
+from vc_ui import inject_calendar_css, compact_game_row, quick_list_header
+from vc_team_names import display_names, short_name_for
+from vc_view_team_names import render_team_names
 from vc_pgs import download_pgs
 import vc_pending as _pending
 if getattr(_pending, "PENDING_RELEASE", "") != "2026-10-26.4":
@@ -220,6 +222,7 @@ if admin:
         for error in st.session_state.pop("results_errors", []):
             st.error(error)
     render_pending_editor(engine, pending_games, persistent=PERSISTENT)
+    render_team_names(engine, PERSISTENT)
     render_club_admin(engine, PERSISTENT)
 
 games = list_games(engine)
@@ -355,13 +358,18 @@ def show_game(key):
 if opening_view and not needs:
     st.info("Nessuna gara con arbitro o refertista mancante nella settimana corrente. Puoi consultare tutte le gare scegliendo una linguetta settimanale.")
 
-for g in week_games:
-    assigned = bookings.get(g["game_key"], [])
-    status = assignment_status(g, assigned)
-    if opening_view and status in ("Completa", "Trasferta"):
-        continue
-    staff = team_staff(engine, g.get("our_team_id") or "")
-    # Stessa scheda e stessi pulsanti Mi prenoto in apertura e in tutte le settimane.
-    compact_game_row(g, assigned, status, staff, show_game)
+names = display_names(engine)
+with st.container(key="vcfixture_area"):
+    quick_list_header()
+    with st.container(key="vcfixture_list"):
+        for g in week_games:
+            assigned = bookings.get(g["game_key"], [])
+            status = assignment_status(g, assigned)
+            if opening_view and status in ("Completa", "Trasferta"):
+                continue
+            staff = team_staff(engine, g.get("our_team_id") or "")
+            staff["short_name"] = short_name_for(g, names)
+            # Stessa scheda e stessi pulsanti Mi prenoto in apertura e in tutte le settimane.
+            compact_game_row(g, assigned, status, staff, show_game)
 
 st.caption("Fonti: FIPAV Como e PGS Milano (U11 PVI ARDOR 2K GIUSSANO). Il recupero PGS viene eseguito solo dal pulsante organizzatore. Le date settimanali non riportano il numero di giornata.")
