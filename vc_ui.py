@@ -4,7 +4,7 @@ import re
 from html import escape
 import streamlit as st
 
-UI_RELEASE = "2026-10-26.14"
+UI_RELEASE = "2026-10-26.15"
 WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
 
 
@@ -25,7 +25,7 @@ def inject_calendar_css():
     [class*="st-key-vcrow_"] [data-testid="stMarkdown"] > div:has(.vc-two-line) {height:69px!important;min-height:69px!important;}
     [class*="st-key-vcrow_"] [data-testid="stMarkdownContainer"]:has(.vc-two-line) {margin:0!important;}
     .vc-two-line {width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;}
-    .vc-blocks {display:grid;grid-template-columns:64px 92px minmax(220px,1fr) 118px 122px 128px;gap:7px;align-items:center;height:69px;min-width:820px;text-align:center;color:#4c647b;font-size:.8rem;}
+    .vc-blocks {display:grid;grid-template-columns:64px 92px minmax(220px,1fr) 200px 122px 128px;gap:7px;align-items:center;height:69px;min-width:902px;text-align:center;color:#4c647b;font-size:.8rem;}
     .vc-block {min-width:0;box-sizing:border-box;height:69px;display:flex;flex-direction:column;justify-content:center;align-items:stretch;}
     .vc-block + .vc-block {border-left:1px solid #e5edf4;padding-left:7px;}
     .vc-category {background:#ffad45;color:#402400;border:1px solid #ec941f;border-radius:7px;}
@@ -38,8 +38,11 @@ def inject_calendar_css():
     .vc-date .vc-side {font-size:.72rem;color:#4c647b;font-weight:650;}
     .vc-line-1,.vc-line-2 {font-weight:800;color:#193b5c;}
     .vc-line-3 {font-size:.73rem;}
-    .vc-staff > span {display:flex;align-items:center;justify-content:center;min-height:34px;min-width:0;}
-    .vc-staff .vc-scroll {display:block;white-space:nowrap;overflow-x:auto;scrollbar-width:none;max-width:100%;}
+    .vc-staff {display:grid;grid-template-rows:34px 34px;gap:1px;}
+    .vc-coaches {display:flex;flex-direction:column;justify-content:center;min-width:0;}
+    .vc-coach-line {display:block;height:17px;line-height:17px;white-space:nowrap;overflow-x:auto;scrollbar-width:none;max-width:100%;}
+    .vc-managers {display:flex;align-items:center;justify-content:center;min-width:0;max-height:34px;}
+    .vc-managers .vc-scroll {display:block;white-space:normal;line-height:17px;max-height:34px;overflow:auto;scrollbar-width:none;max-width:100%;}
     .vc-role {height:34px;display:flex;flex-direction:column;justify-content:center;min-width:0;}
     .vc-role b {font-size:.75rem;line-height:17px;}
     .vc-role span {display:block;white-space:nowrap;overflow-x:auto;scrollbar-width:none;font-size:.72rem;line-height:17px;}
@@ -64,7 +67,7 @@ def compact_game_row(game, assigned, status, staff, on_open):
     match = re.search(r"\bU\s*(\d+)", category, flags=re.I)
     category_short = "U" + match.group(1) if match else category
     source = "PGS" if "PGS" in game["source"].upper() else game["source"]
-    coaches = ", ".join(x for x in (staff.get("coach1"), staff.get("coach2")) if x) or "—"
+    coaches = [x for x in (staff.get("coach1"), staff.get("coach2")) if x] or ["—"]
     managers = ", ".join(staff.get("managers", "").splitlines()).strip(", ") or "—"
     venue = game.get("venue") or "Palestra da indicare"
     if game.get("address"):
@@ -81,8 +84,11 @@ def compact_game_row(game, assigned, status, staff, on_open):
         line(game['time'], "")+line("CASA" if game['is_home'] else "TRASFERTA", "vc-side")+'</div>')
     fixture_box = ('<div class="vc-block vc-fixture">'+line(game['home_team'], 'vc-line-1')+
         line(game['away_team']+score, 'vc-line-2')+line(venue, 'vc-line-3')+'</div>')
-    staff_box = ('<div class="vc-block vc-staff"><span>'+line('ALL. '+coaches, 'vc-scroll')+
-        '</span><span>'+line('DIR. '+managers, 'vc-scroll')+'</span></div>')
+    # First and second coach retain the order saved in the team registry.
+    coach_lines = ''.join(line(('ALL. ' if i == 0 else '') + name, 'vc-coach-line')
+                          for i, name in enumerate(coaches))
+    staff_box = ('<div class="vc-block vc-staff"><div class="vc-coaches">'+coach_lines+
+        '</div><div class="vc-managers">'+line('DIR. '+managers, 'vc-scroll')+'</div></div>')
     roles = ''
     if game['is_home']:
         for label, role in [('Arbitro', 'referee'), ('Refertista', 'scorer')]:
