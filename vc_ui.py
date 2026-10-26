@@ -10,25 +10,25 @@ def _e(value):
 
 def inject_calendar_css():
     st.markdown("""<style>
-    .st-key-vcrow_ {background:#ffffff; border:1px solid #dbe6f0; border-radius:11px;
+    [class*="st-key-vcrow_"] {background:#ffffff; border:1px solid #dbe6f0; border-radius:11px;
         padding:7px 10px; margin-bottom:5px; box-shadow:0 1px 2px rgba(25,52,78,.035);}
-    .st-key-vcrow_ [data-testid="stHorizontalBlock"] {gap:.45rem;}
-    .st-key-vcrow_ [data-testid="stVerticalBlock"] {gap:0;}
-    .st-key-vcrow_ .vc-date {font-weight:800;font-size:.89rem;white-space:nowrap;color:#193f64;}
-    .st-key-vcrow_ .vc-small {font-size:.73rem;color:#5b6f83;line-height:1.3;}
-    .st-key-vcrow_ .vc-team {font-weight:750;font-size:.91rem;line-height:1.35;color:#183657;}
-    .st-key-vcrow_ .vc-facility,.st-key-vcrow_ .vc-staff,.st-key-vcrow_ .vc-names {
+    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {gap:.45rem;}
+    [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:0;}
+    [class*="st-key-vcrow_"] .vc-date {font-weight:800;font-size:.89rem;white-space:nowrap;color:#193f64;}
+    [class*="st-key-vcrow_"] .vc-small {font-size:.73rem;color:#5b6f83;line-height:1.3;}
+    [class*="st-key-vcrow_"] .vc-team {font-weight:750;font-size:.91rem;line-height:1.35;color:#183657;}
+    [class*="st-key-vcrow_"] .vc-facility,[class*="st-key-vcrow_"] .vc-staff,[class*="st-key-vcrow_"] .vc-names {
         font-size:.73rem;line-height:1.35;color:#5c7084;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    .st-key-vcrow_ .vc-state {font-size:.82rem;font-weight:800;line-height:1.4;color:#b06b13;}
-    .st-key-vcrow_ .vc-state.good {color:#16704b;}
-    .st-key-vcrow_ .vc-state.away {color:#246699;}
-    .st-key-vcrow_ [class*="st-key-vcopen_"] button {min-height:35px!important;height:35px!important;
+    [class*="st-key-vcrow_"] .vc-state {font-size:.82rem;font-weight:800;line-height:1.4;color:#b06b13;}
+    [class*="st-key-vcrow_"] .vc-state.good {color:#16704b;}
+    [class*="st-key-vcrow_"] .vc-state.away {color:#246699;}
+    [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {min-height:35px!important;height:35px!important;
         min-width:35px!important;width:35px!important;padding:0!important;border-radius:9px!important;
         font-size:1.12rem!important;}
     @media(max-width:750px) {
-      .st-key-vcrow_ {padding:8px;}
-      .st-key-vcrow_ .vc-date,.st-key-vcrow_ .vc-team {white-space:normal;}
-      .st-key-vcrow_ .vc-facility,.st-key-vcrow_ .vc-staff,.st-key-vcrow_ .vc-names {white-space:normal;}
+      [class*="st-key-vcrow_"] {padding:8px;}
+      [class*="st-key-vcrow_"] .vc-date,[class*="st-key-vcrow_"] .vc-team {white-space:normal;}
+      [class*="st-key-vcrow_"] .vc-facility,[class*="st-key-vcrow_"] .vc-staff,[class*="st-key-vcrow_"] .vc-names {white-space:normal;}
     }
     </style>""",unsafe_allow_html=True)
 
