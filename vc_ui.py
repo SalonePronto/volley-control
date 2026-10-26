@@ -14,16 +14,14 @@ def inject_calendar_css():
     [class*="st-key-vcrow_"] [data-testid="stColumn"] {min-width:0;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {gap:.45rem;}
     [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:0;}
-    [class*="st-key-vcrow_"] [data-testid="stElementContainer"]:has(.vc-two-line),
-    [class*="st-key-vcrow_"] [data-testid="stMarkdown"],
-    [class*="st-key-vcrow_"] [data-testid="stMarkdown"] > div {height:auto!important;min-height:69px;}
+    [class*="st-key-vcrow_"] [data-testid="stElementContainer"]:has(.vc-two-line) {height:auto!important;min-height:69px;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {min-height:73px;flex-wrap:nowrap!important;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
-    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 112px!important;width:112px!important;min-width:112px!important;}
+    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 190px!important;width:190px!important;min-width:190px!important;}
     .vc-two-line {width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;}
     .vc-lines {width:max-content;min-width:100%;}
     .vc-line-1,.vc-line-2,.vc-line-3 {display:grid;align-items:center;gap:14px;height:23px;width:100%;font-size:.8rem;line-height:23px;color:#4c647b;}
-    .vc-line-1 {grid-template-columns:max-content max-content minmax(max-content,1fr) max-content;}
+    .vc-line-1 {grid-template-columns:max-content max-content minmax(max-content,1fr);}
     .vc-line-2 {grid-template-columns:minmax(max-content,1fr) max-content max-content;}
     .vc-line-3 {grid-template-columns:minmax(max-content,1fr) minmax(max-content,1fr);}
     .vc-two-line span {display:block;white-space:nowrap;}
@@ -31,15 +29,22 @@ def inject_calendar_css():
     .vc-two-line .vc-state {font-weight:780;color:#aa6a14;}
     .vc-two-line .vc-away {color:#246699;}
     .vc-two-line .vc-ready {color:#16704b;}
+    .vc-right-status {display:flex;justify-content:center;align-items:center;text-align:center;
+        box-sizing:border-box;padding:3px 6px;min-height:34px;margin-bottom:4px;
+        border-radius:8px;font-size:.71rem;font-weight:850;line-height:1.2;
+        overflow-wrap:anywhere;white-space:normal;}
+    .vc-right-status.missing {background:#ffe04b;color:#292000;border:2px solid #c99a00;}
+    .vc-right-status.ready {background:#e1f4e8;color:#17633f;border:1px solid #c6e6d2;}
+    .vc-right-status.away {background:#e5f0fa;color:#1b557f;border:1px solid #d0e3f3;}
     [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {min-width:92px!important;min-height:34px!important;height:34px!important;width:100%!important;padding:0 4px!important;border-radius:8px!important;font-size:.77rem!important;font-weight:700!important;white-space:nowrap!important;}
     [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] {flex-wrap:nowrap!important;}
     [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
-    [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 112px!important;width:112px!important;min-width:112px!important;}
+    [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 190px!important;width:190px!important;min-width:190px!important;}
     .vc-two-line span + span {border-left:1px solid #e5edf4;padding-left:14px;}
     </style>""",unsafe_allow_html=True)
 
 
-UI_RELEASE = "2026-10-26.4"
+UI_RELEASE = "2026-10-26.6"
 
 
 WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
@@ -71,18 +76,20 @@ def compact_game_row(game, assigned, status, staff, on_open):
         safe = _e(value)
         return f'<span class="{style}" title="{safe}">{safe}</span>'
 
-    top = (cell(date_info, "vc-strong") + cell(event_info) +
-           cell(teams, "vc-strong") + cell(status, "vc-state" + state_class))
+    top = cell(date_info, "vc-strong") + cell(event_info) + cell(teams, "vc-strong")
     bottom = cell(venue) + cell(referee) + cell(scorer)
     staff_line = cell(coach_info) + cell(manager_info)
     with st.container(border=False, key="vcrow_" + short):
-        left, right = st.columns([9, 1.15], vertical_alignment="center", gap="small")
+        left, right = st.columns([9, 1.8], vertical_alignment="center", gap="small")
         with left:
-            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.4" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
+            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.6" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
                         '</div><div class="vc-line-2">' + bottom +
                         '</div><div class="vc-line-3">' + staff_line + '</div></div></div>',
                         unsafe_allow_html=True)
         with right:
+            status_type = "away" if status == "Trasferta" else "ready" if status == "Completa" else "missing"
+            st.markdown(f'<div class="vc-right-status {status_type}" role="status">{_e(status)}</div>',
+                        unsafe_allow_html=True)
             if st.button("Vedi scheda", key="vcopen_" + short,
                          help="Apri la scheda completa", use_container_width=True):
                 on_open(game["game_key"])
