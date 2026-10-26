@@ -4,7 +4,7 @@ import re
 from html import escape
 import streamlit as st
 
-UI_RELEASE = "2026-10-26.15"
+UI_RELEASE = "2026-10-26.16"
 WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
 
 
@@ -14,7 +14,7 @@ def _e(value):
 
 def inject_calendar_css():
     st.markdown("""<style>
-    [class*="st-key-vcrow_"] {background:#fff;border:1px solid #dbe6f0;border-radius:10px;padding:6px 9px;margin-bottom:5px;box-shadow:0 1px 2px rgba(25,52,78,.04);}
+    [class*="st-key-vcrow_"] {container-type:inline-size;position:relative;background:#fff;border:1px solid #dbe6f0;border-radius:10px;padding:6px 9px;margin-bottom:5px;box-shadow:0 1px 2px rgba(25,52,78,.04);}
     [class*="st-key-vcrow_"] [data-testid="stColumn"] {min-width:0;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {gap:7px!important;min-height:73px;flex-wrap:nowrap!important;}
     [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:0!important;}
@@ -54,11 +54,49 @@ def inject_calendar_css():
     .vc-right-status.away {background:#e5f0fa;color:#1b557f;border:1px solid #d0e3f3;}
     [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {box-sizing:border-box;min-width:64px!important;max-width:64px!important;width:64px!important;min-height:64px!important;height:64px!important;padding:5px!important;border-radius:5px!important;font-size:.8rem!important;font-weight:750!important;white-space:normal!important;}
     [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button p {max-width:45px!important;line-height:1.35!important;text-align:center;white-space:normal!important;}
+
+    /* Reflow by the actual card width, including phone rotation and zoom. */
+    @container (max-width:1000px) {
+      [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {display:block!important;min-height:0!important;}
+      [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {width:100%!important;min-width:0!important;flex:auto!important;}
+      [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {position:absolute!important;right:9px;bottom:8px;}
+      [class*="st-key-vcrow_"] [data-testid="stElementContainer"]:has(.vc-two-line),
+      [class*="st-key-vcrow_"] [data-testid="stMarkdown"]:has(.vc-two-line),
+      [class*="st-key-vcrow_"] [data-testid="stMarkdown"] > div:has(.vc-two-line) {height:auto!important;min-height:0!important;}
+      .vc-two-line {overflow:visible;}
+      .vc-blocks {height:auto;min-width:0;grid-template-columns:64px 92px repeat(2,minmax(0,1fr));gap:8px;font-size:.875rem;}
+      .vc-block {height:auto;min-width:0;}
+      .vc-block + .vc-block {border-left:0;padding-left:0;}
+      .vc-category {grid-column:1;height:69px;}
+      .vc-date {grid-column:2;min-height:69px;}
+      .vc-fixture {grid-column:3/5;min-height:69px;}
+      .vc-staff {grid-column:1/4;grid-template-rows:auto auto;gap:5px;}
+      .vc-roles {grid-column:4;}
+      .vc-roles:empty {display:none;}
+      .vc-staff,.vc-roles {border-top:1px solid #e5edf4;padding:6px 0;}
+      .vc-state-block {grid-column:1/-1;height:64px;margin-right:72px;}
+      .vc-right-status {height:auto;min-height:52px;font-size:.85rem;}
+      .vc-line-1,.vc-line-2,.vc-line-3,.vc-coach-line,.vc-managers .vc-scroll,.vc-role span {
+        height:auto;max-height:none;line-height:1.4;white-space:normal;overflow:visible;overflow-wrap:anywhere;}
+      .vc-line-3 {font-size:.8rem;margin-top:3px;}
+      .vc-managers {max-height:none;}
+      .vc-role {height:auto;min-height:34px;padding:3px 0;}
+      .vc-role b,.vc-role span {font-size:.85rem;line-height:1.4;}
+    }
+    @container (max-width:560px) {
+      .vc-blocks {grid-template-columns:64px minmax(0,1fr);gap:8px 12px;}
+      .vc-date {grid-column:2;}
+      .vc-fixture,.vc-staff,.vc-roles,.vc-state-block {grid-column:1/-1;}
+      .vc-fixture {min-height:0;border-top:1px solid #e5edf4;padding-top:7px;gap:3px;}
+      .vc-staff {padding:7px 0;}
+      .vc-roles {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+      .vc-roles:empty {display:none;}
+    }
     </style>""", unsafe_allow_html=True)
 
 
 def compact_game_row(game, assigned, status, staff, on_open):
-    """Same 87px band for every source: category/date/teams/staff/roles/state/open."""
+    """87px on desktop; all fields wrap into visible blocks on narrower screens."""
     from datetime import datetime
     from vc_view_game import role_names
     d = datetime.fromisoformat(game["date"])
