@@ -13,6 +13,10 @@ from vc_core import (DISPLAY_FIELDS, FIPAV_TEAMS, PGS_TEAM, coverage, download_f
                      parse_date, parse_time, week_label, week_start)
 from vc_storage import (audit_for_game, conflicts_for_game, list_games, modify_game,
                         open_engine, save_import)
+from vc_people import init_people, apply_fixed, assignments_for_games
+from vc_view_people import render_person_access
+from vc_view_admin import render_club_admin
+from vc_view_game import render_game_people, assignment_status, role_names
 
 st.set_page_config(page_title="VOLLEY CONTROL", page_icon="🏐", layout="wide")
 
@@ -25,6 +29,7 @@ def secret(name):
 
 
 DATABASE_URL = secret("DATABASE_URL")
+PERSISTENT = bool(DATABASE_URL)
 PATTY_PASSWORD = secret("PATTY_PASSWORD")
 
 
@@ -35,6 +40,7 @@ def storage(url):
 
 try:
     engine = storage(DATABASE_URL)
+    init_people(engine)
 except Exception as exc:
     st.error("Database non disponibile. Nessun dato è stato modificato.")
     st.caption(f"Diagnostica: {type(exc).__name__}")
@@ -65,7 +71,11 @@ def run_sync(results_only=False):
             errors.append(f"{team['team_name']}: {type(exc).__name__} — {exc}")
     if not all_games:
         return None, errors
-    return save_import(engine, all_games, only_results=results_only), errors
+    report = save_import(engine, all_games, only_results=results_only)
+    if not results_only:
+        fixed = apply_fixed(engine)
+        errors.extend(fixed["conflicts"])
+    return report, errors
 
 
 if "initial_loaded" not in st.session_state:
@@ -106,6 +116,8 @@ admin = bool(st.session_state.get("patty_authenticated")) and (
 if not admin:
     st.session_state.patty_authenticated = False
 
+viewer = render_person_access(engine, PERSISTENT)
+
 left, right = st.columns([5, 1], vertical_alignment="center")
 with left:
     st.markdown("**Calendario gare** · Tutte le squadre, ordinate per data e ora")
@@ -138,7 +150,8 @@ if admin:
             st.success(f"Risultati: {report['updated']} gare aggiornate, {report['unchanged']} invariate.")
         for error in errors:
             st.error(error)
-    st.info("PGS Milano · U11 PVI ARDOR 2K GIUSSANO: accesso al sito già provato con Work; download diretto Python/Excel non ancora verificato. Nessuna gara PGS viene inventata o importata.")
+    st.info("PGS Milano · U11 PVI ARDOR 2K GIUSSANO: accesso già provato con Work; importazione Python da verificare.")
+    render_club_admin(engine, PERSISTENT)
 
 games = list_games(engine)
 if not games:
@@ -165,10 +178,11 @@ for idx in range(0, len(weeks), 3):
             st.rerun()
 
 week_games = [g for g in games if week_start(g["date"]) == selected_week]
-statuses = [coverage(g) for g in week_games]
+bookings = assignments_for_games(engine, [g["game_key"] for g in week_games])
+statuses = [assignment_status(g,bookings.get(g["game_key"],[])) for g in week_games]
 needs = [s for s in statuses if s not in ("Trasferta", "Completa")]
-missing_ref = sum(max(0, int(g.get("required_referees", 0))) for g in week_games if g["is_home"])
-missing_score = sum(max(0, int(g.get("required_scorers", 0))) for g in week_games if g["is_home"])
+missing_ref = sum(max(0,int(g.get("required_referees",0))-sum(a["role"]=="referee" for a in bookings.get(g["game_key"],[]))) for g in week_games if g["is_home"])
+missing_score = sum(max(0,int(g.get("required_scorers",0))-sum(a["role"]=="scorer" for a in bookings.get(g["game_key"],[]))) for g in week_games if g["is_home"])
 
 st.markdown(f"### {week_label(selected_week)}")
 metrics = st.columns(5)
@@ -190,10 +204,8 @@ def show_game(key):
     st.write(f"**Fonte:** {game['source']} | **Numero gara:** {game['game_number'] or 'Non presente'} | **Sede:** {'Casa' if game['is_home'] else 'Trasferta'}")
     st.write(f"**Palestra:** {game['venue']}")
     st.write(f"**Indirizzo:** {game['address'] or 'Indirizzo non presente nel feed ufficiale'}")
-    st.write(f"**Copertura:** {coverage(game)}")
-    st.write("**Arbitro:** Da assegnare" if game["is_home"] else "**Arbitro:** Non richiesto dalla società")
-    st.write("**Refertista:** Da assegnare" if game["is_home"] else "**Refertista:** Non richiesto dalla società")
-    st.write("**Primo/secondo allenatore e dirigenti:** anagrafiche da configurare")
+    st.write(f"**Copertura:** {assignment_status(game,assignments_for_games(engine,[key]).get(key,[]))}")
+    render_game_people(engine,game,organizer=admin,viewer=viewer,persistent=PERSISTENT)
     if game.get("played"):
         st.write(f"**Risultato:** {game.get('home_sets', '—')} – {game.get('away_sets', '—')}")
         if game.get("sets"):
@@ -249,7 +261,7 @@ def show_game(key):
 ITALIAN_WEEKDAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
 for g in week_games:
     d = datetime.fromisoformat(g["date"])
-    status = coverage(g)
+    status = assignment_status(g,bookings.get(g["game_key"],[]))
     result = f" · Ris. {g.get('home_sets')}–{g.get('away_sets')}" if g.get("played") else ""
     with st.container(border=True):
         a, b, c = st.columns([2, 4, 4], vertical_alignment="center")
@@ -263,7 +275,10 @@ for g in week_games:
             st.caption(f"{g['venue']} · {g['address'] or 'Indirizzo ufficiale non presente'}")
         with c:
             st.markdown(f"**{status}**")
-            st.caption(f"Arbitro: {'Da assegnare' if g['is_home'] else 'Non richiesto'} · Refertista: {'Da assegnare' if g['is_home'] else 'Non richiesto'}")
+            assigned=bookings.get(g["game_key"],[])
+            ref=role_names(assigned,"referee") or ("Da assegnare" if g["is_home"] else "Non richiesto")
+            scorer=role_names(assigned,"scorer") or ("Da assegnare" if g["is_home"] else "Non richiesto")
+            st.caption(f"Arbitro: {ref} · Refertista: {scorer}")
             if st.button("Apri scheda partita", key=f"game_{g['game_key']}", use_container_width=True):
                 show_game(g["game_key"])
 
