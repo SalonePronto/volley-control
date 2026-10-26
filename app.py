@@ -202,8 +202,17 @@ def show_game(key):
         st.error("Gara non più presente nell'archivio.")
         return
     from html import escape
-    from vc_view_game import inject_sheet_css, info_card
-    inject_sheet_css()
+    # Scheda autonoma: non dipende da funzioni grafiche di altri moduli.
+    def info_card(title, main, detail=""):
+        st.markdown(
+            '<div style="background:#fff;border:1px solid #dce6f0;border-radius:12px;'
+            'padding:12px 14px;margin:5px 0 10px;overflow-wrap:anywhere">'
+            '<div style="font-size:.74rem;font-weight:750;color:#5a748a;text-transform:uppercase">'
+            + escape(str(title)) + '</div><div style="font-weight:750;color:#193b5c;font-size:1rem">'
+            + escape(str(main)) + '</div><div style="color:#5c7084;font-size:.84rem">'
+            + escape(str(detail)) + '</div></div>',
+            unsafe_allow_html=True,
+        )
     d = datetime.fromisoformat(game["date"])
     home = escape(str(game["home_team"]))
     away = escape(str(game["away_team"]))
