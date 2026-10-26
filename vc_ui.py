@@ -16,15 +16,16 @@ def inject_calendar_css():
     [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:0;}
     [class*="st-key-vcrow_"] [data-testid="stElementContainer"]:has(.vc-two-line),
     [class*="st-key-vcrow_"] [data-testid="stMarkdown"],
-    [class*="st-key-vcrow_"] [data-testid="stMarkdown"] > div {height:auto!important;min-height:46px;}
-    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {min-height:50px;flex-wrap:nowrap!important;}
+    [class*="st-key-vcrow_"] [data-testid="stMarkdown"] > div {height:auto!important;min-height:69px;}
+    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {min-height:73px;flex-wrap:nowrap!important;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 112px!important;width:112px!important;min-width:112px!important;}
     .vc-two-line {width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;}
     .vc-lines {width:max-content;min-width:100%;}
-    .vc-line-1,.vc-line-2 {display:grid;align-items:center;gap:14px;height:23px;width:100%;font-size:.8rem;line-height:23px;color:#4c647b;}
+    .vc-line-1,.vc-line-2,.vc-line-3 {display:grid;align-items:center;gap:14px;height:23px;width:100%;font-size:.8rem;line-height:23px;color:#4c647b;}
     .vc-line-1 {grid-template-columns:max-content max-content minmax(max-content,1fr) max-content;}
-    .vc-line-2 {grid-template-columns:minmax(max-content,1fr) max-content max-content max-content;}
+    .vc-line-2 {grid-template-columns:minmax(max-content,1fr) max-content max-content;}
+    .vc-line-3 {grid-template-columns:minmax(max-content,1fr) minmax(max-content,1fr);}
     .vc-two-line span {display:block;white-space:nowrap;}
     .vc-two-line .vc-strong {font-weight:750;color:#193b5c;}
     .vc-two-line .vc-state {font-weight:780;color:#aa6a14;}
@@ -42,13 +43,13 @@ WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
 
 
 def compact_game_row(game, assigned, status, staff, on_open):
-    """Exactly two horizontal lines of match information, plus Vedi scheda."""
+    """Three horizontal lines of match information, plus Vedi scheda."""
     from datetime import datetime
     from vc_view_game import role_names
     d = datetime.fromisoformat(game["date"])
     short = hashlib.sha256(game["game_key"].encode("utf-8")).hexdigest()[:14]
     date_info = f"{WEEKDAYS[d.weekday()]} {d:%d/%m} · {game['time']}"
-    event_info = f"{game['category']} · Gara {game.get('game_number') or '—'}"
+    event_info = f"{game['source']} · {game['category']} · Gara {game.get('game_number') or '—'}"
     teams = f"{game['home_team']} – {game['away_team']}"
     if game.get("played"):
         teams += f" · {game.get('home_sets')}–{game.get('away_sets')}"
@@ -58,7 +59,8 @@ def compact_game_row(game, assigned, status, staff, on_open):
         venue += f" · {game['address']}"
     coaches = ", ".join(x for x in (staff.get("coach1"), staff.get("coach2")) if x) or "—"
     managers = ", ".join(staff.get("managers", "").splitlines()).strip(", ") or "—"
-    personnel = f"All.: {coaches} · Dir.: {managers}"
+    coach_info = f"Allenatori: {coaches}"
+    manager_info = f"Dirigenti: {managers}"
     referee = f"Arbitro: {role_names(assigned,'referee') or ('Da assegnare' if game['is_home'] else 'Non richiesto')}"
     scorer = f"Refertista: {role_names(assigned,'scorer') or ('Da assegnare' if game['is_home'] else 'Non richiesto')}"
 
@@ -68,12 +70,14 @@ def compact_game_row(game, assigned, status, staff, on_open):
 
     top = (cell(date_info, "vc-strong") + cell(event_info) +
            cell(teams, "vc-strong") + cell(status, "vc-state" + state_class))
-    bottom = cell(venue) + cell(personnel) + cell(referee) + cell(scorer)
+    bottom = cell(venue) + cell(referee) + cell(scorer)
+    staff_line = cell(coach_info) + cell(manager_info)
     with st.container(border=False, key="vcrow_" + short):
         left, right = st.columns([9, 1.15], vertical_alignment="center", gap="small")
         with left:
-            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.2" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
-                        '</div><div class="vc-line-2">' + bottom + '</div></div></div>',
+            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.3" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
+                        '</div><div class="vc-line-2">' + bottom +
+                        '</div><div class="vc-line-3">' + staff_line + '</div></div></div>',
                         unsafe_allow_html=True)
         with right:
             if st.button("Vedi scheda", key="vcopen_" + short,

@@ -38,7 +38,7 @@ def test_real_week_and_home_dialog(db):
         assert any('Prenotazioni disattivate' in c.value for c in app.caption)
         rows = [m.value for m in app.markdown if 'data-ui-release=' in m.value]
         assert len(rows) == 1
-        assert rows[0].count('class="vc-line-') == 2
+        assert rows[0].count('class="vc-line-') == 3
         assert '7009' in rows[0] and GAME['address'] in rows[0]
 
 

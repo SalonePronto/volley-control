@@ -18,6 +18,7 @@ from vc_view_people import render_person_access
 from vc_view_admin import render_club_admin
 from vc_view_game import render_game_people, assignment_status, role_names
 from vc_ui import inject_calendar_css, compact_game_row
+from vc_pgs import download_pgs
 from vc_people import team_staff
 
 st.set_page_config(page_title="VOLLEY CONTROL", page_icon="🏐", layout="wide")
@@ -58,13 +59,13 @@ st.markdown("""<style>
 .stButton>button{border-radius:10px;min-height:40px}
 </style>""", unsafe_allow_html=True)
 inject_calendar_css()
-st.markdown('<div class="hero"><h1>🏐 VOLLEY CONTROL</h1><p>Calendario settimanale · FIPAV Como · PGS Milano in preparazione</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>🏐 VOLLEY CONTROL</h1><p>Calendario settimanale · FIPAV Como · PGS Milano U11</p></div>', unsafe_allow_html=True)
 
 if not DATABASE_URL:
     st.warning("Archivio di anteprima: su Streamlit Community Cloud i dati locali possono sparire ai riavvii. Per conservarli davvero fra accessi e riavvii serve configurare DATABASE_URL con un database esterno.")
 
 
-def run_sync(results_only=False):
+def run_sync(results_only=False, include_pgs=False):
     all_games = []
     errors = []
     for team in FIPAV_TEAMS:
@@ -72,12 +73,23 @@ def run_sync(results_only=False):
             all_games.extend(download_fipav(team))
         except Exception as exc:
             errors.append(f"{team['team_name']}: {type(exc).__name__} — {exc}")
+    source_counts = {"FIPAV Como": len(all_games)}
+    if include_pgs:
+        try:
+            pgs_games, pending = download_pgs()
+            all_games.extend(pgs_games)
+            source_counts["PGS Milano U11"] = len(pgs_games)
+            if pending:
+                errors.append("PGS: gare senza data/ora, non collocabili nelle settimane: " + ", ".join(pending))
+        except Exception as exc:
+            errors.append(f"PGS U11 PVI ARDOR 2K GIUSSANO: {type(exc).__name__} — {exc}")
     if not all_games:
         return None, errors
     report = save_import(engine, all_games, only_results=results_only)
     if not results_only:
         fixed = apply_fixed(engine)
         errors.extend(fixed["conflicts"])
+    report["sources"] = source_counts
     return report, errors
 
 
@@ -132,28 +144,34 @@ with right:
     elif st.button("🔒 PATTY", use_container_width=True, type="primary"):
         patty_login()
 
+# Visible entry point; downloading/importing stays organizer-only.
+if st.button("↻ Scarica e aggiorna calendari", use_container_width=True):
+    if not admin:
+        patty_login()
+    else:
+        with st.spinner("Python scarica FIPAV e PGS, seleziona le nostre squadre e aggiorna le settimane…"):
+            report, errors = run_sync(False, include_pgs=True)
+        if report:
+            detail = " · ".join(f"{name}: {count} gare" for name, count in report["sources"].items())
+            st.success(f"{detail}. Archivio: {report['inserted']} nuove, {report['updated']} aggiornate, {report['unchanged']} invariate.")
+        for error in errors:
+            st.error(error)
+st.caption("Recupera le gare di Ottolina U15, Pinuccè U17 e PGS U11 PVI ARDOR 2K GIUSSANO direttamente nel calendario. Accesso organizzatore richiesto.")
+
 if "initial_errors" in st.session_state:
     for error in st.session_state.pop("initial_errors"):
         st.error(f"Download iniziale: {error}")
 
 if admin:
     st.markdown("#### PATTY · Comandi riservati")
-    c1, c2 = st.columns(2)
-    if c1.button("↻ Aggiorna calendari FIPAV", type="primary", use_container_width=True):
-        with st.spinner("Sincronizzo FIPAV con il database…"):
-            report, errors = run_sync(False)
-        if report:
-            st.success(f"FIPAV: {report['inserted']} nuove gare, {report['updated']} aggiornate, {report['unchanged']} invariate.")
-        for error in errors:
-            st.error(error)
-    if c2.button("↻ Aggiorna risultati", use_container_width=True):
+    if st.button("↻ Aggiorna risultati", use_container_width=True):
         with st.spinner("Aggiorno i risultati FIPAV senza duplicare gare…"):
-            report, errors = run_sync(True)
+            report, errors = run_sync(True, include_pgs=True)
         if report:
             st.success(f"Risultati: {report['updated']} gare aggiornate, {report['unchanged']} invariate.")
         for error in errors:
             st.error(error)
-    st.info("PGS Milano · U11 PVI ARDOR 2K GIUSSANO: accesso già provato con Work; importazione Python da verificare.")
+    st.info("PGS Milano · U11 PVI ARDOR 2K GIUSSANO: il pulsante calendari esegue il recupero Python e inserisce le gare nelle settimane condivise.")
     render_club_admin(engine, PERSISTENT)
 
 games = list_games(engine)
@@ -289,4 +307,4 @@ for g in week_games:
     staff = team_staff(engine, g.get("our_team_id") or "")
     compact_game_row(g, assigned, status, staff, show_game)
 
-st.caption("Fonti: FIPAV Como (dati recuperati online da Python). PGS Milano U11 PVI ARDOR 2K GIUSSANO: collegamento automatico ancora da completare. Le date settimanali non riportano il numero di giornata.")
+st.caption("Fonti: FIPAV Como e PGS Milano (U11 PVI ARDOR 2K GIUSSANO). Il recupero PGS viene eseguito solo dal pulsante organizzatore. Le date settimanali non riportano il numero di giornata.")

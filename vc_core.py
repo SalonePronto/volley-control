@@ -12,7 +12,7 @@ FIPAV_TEAMS = [
     {"team_name": "PVI STUDIO OTTOLINA", "team_id": "229693", "category": "U15 Femminile", "group_id": "63945"},
     {"team_name": "PVI PINUCCÈ", "team_id": "229990", "category": "U17 Femminile", "group_id": "63942"},
 ]
-PGS_TEAM = {"team_id": "PGS:U11:PVI-ARDOR-2K-GIUSSANO", "team_name": "PVI ARDOR 2K GIUSSANO", "category": "U11", "source": "PGS Milano", "season": SEASON}
+PGS_TEAM = {"team_id": "6ab0ec072cf8134e0d68e749", "team_name": "PVI ARDOR 2K GIUSSANO", "category": "U11", "source": "PGS Milano", "season": SEASON}
 RESULT_FIELDS = {"played", "home_sets", "away_sets", "sets"}
 DISPLAY_FIELDS = {
     "date": "Data (AAAA-MM-GG)", "time": "Ora (HH:MM)",
