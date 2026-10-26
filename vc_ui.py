@@ -1,7 +1,11 @@
-"""Compact, mobile-friendly weekly fixture rows for VOLLEY CONTROL."""
+"""Compact fixture bands following the club's approved block sketch."""
 import hashlib
+import re
 from html import escape
 import streamlit as st
+
+UI_RELEASE = "2026-10-26.12"
+WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
 
 
 def _e(value):
@@ -12,109 +16,93 @@ def inject_calendar_css():
     st.markdown("""<style>
     [class*="st-key-vcrow_"] {background:#fff;border:1px solid #dbe6f0;border-radius:10px;padding:6px 9px;margin-bottom:5px;box-shadow:0 1px 2px rgba(25,52,78,.04);}
     [class*="st-key-vcrow_"] [data-testid="stColumn"] {min-width:0;}
-    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {gap:.45rem;}
-    [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:3px!important;}
-    [class*="st-key-vcrow_"] [data-testid="stElementContainer"]:has(.vc-two-line) {height:auto!important;}
-    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {min-height:73px;flex-wrap:nowrap!important;}
+    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {gap:7px!important;min-height:73px;flex-wrap:nowrap!important;}
+    [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:0!important;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
-    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 124px!important;width:124px!important;min-width:124px!important;}
-    .vc-two-line {width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;}
-    .vc-lines {width:100%;min-width:720px;}
-    .vc-line-1,.vc-line-2,.vc-line-3 {display:grid;align-items:center;gap:0;height:23px;width:100%;font-size:.8rem;line-height:23px;color:#4c647b;}
-    .vc-line-1,.vc-line-2,.vc-line-3 {grid-template-columns:repeat(12,minmax(0,1fr));}
-    .vc-line-1 > span:nth-child(1) {grid-column:span 2;}
-    .vc-line-1 > span:nth-child(2) {grid-column:span 3;}
-    .vc-line-1 > span:nth-child(3) {grid-column:span 7;}
-    .vc-line-2 > span:nth-child(1) {grid-column:span 8;}
-    .vc-line-2 > span:nth-child(n+2) {grid-column:span 2;}
-    .vc-line-2.vc-line-away > span {grid-column:1/-1;}
-    .vc-line-3 > span:nth-child(1) {grid-column:span 5;}
-    .vc-line-3 > span:nth-child(2) {grid-column:span 7;}
-    .vc-two-line span {display:block;min-width:0;box-sizing:border-box;white-space:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding-right:9px;text-align:left;}
-    .vc-two-line span::-webkit-scrollbar {display:none;}
-    .vc-two-line .vc-strong {font-weight:750;color:#193b5c;}
-    .vc-two-line .vc-role-open {color:#147347;font-weight:850;}
-    .vc-two-line .vc-role-booked {color:#bc2635;font-weight:850;}
-    .vc-two-line .vc-state {font-weight:780;color:#aa6a14;}
-    .vc-two-line .vc-away {color:#246699;}
-    .vc-two-line .vc-ready {color:#16704b;}
-    .vc-right-status {display:flex;justify-content:center;align-items:center;text-align:center;
-        box-sizing:border-box;width:100%;padding:2px 6px;min-height:34px;height:34px;margin:0;
-        border-radius:8px;font-size:.71rem;font-weight:850;line-height:1.1;
-        overflow-wrap:anywhere;white-space:normal;position:static!important;}
+    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 64px!important;width:64px!important;min-width:64px!important;}
+    .vc-two-line {width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;}
+    .vc-blocks {display:grid;grid-template-columns:64px 92px minmax(220px,1fr) 118px 122px 128px;gap:7px;align-items:center;height:69px;min-width:820px;text-align:center;color:#4c647b;font-size:.8rem;}
+    .vc-block {min-width:0;box-sizing:border-box;height:69px;display:flex;flex-direction:column;justify-content:center;align-items:stretch;}
+    .vc-block + .vc-block {border-left:1px solid #e5edf4;padding-left:7px;}
+    .vc-category {background:#ffad45;color:#402400;border:1px solid #ec941f;border-radius:7px;}
+    .vc-category strong {font-size:1.65rem;line-height:29px;font-weight:850;}
+    .vc-category .vc-source {font-size:.76rem;line-height:18px;font-weight:800;}
+    .vc-category .vc-number {font-size:.67rem;line-height:16px;}
+    .vc-date span,.vc-line-1,.vc-line-2,.vc-line-3 {display:block;min-width:0;max-width:100%;height:23px;line-height:23px;white-space:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;}
+    .vc-blocks ::-webkit-scrollbar {display:none;}
+    .vc-date {font-weight:750;color:#193b5c;}
+    .vc-date .vc-side {font-size:.72rem;color:#4c647b;font-weight:650;}
+    .vc-line-1,.vc-line-2 {font-weight:800;color:#193b5c;}
+    .vc-line-3 {font-size:.73rem;}
+    .vc-staff > span {display:flex;align-items:center;justify-content:center;min-height:34px;min-width:0;}
+    .vc-staff .vc-scroll {display:block;white-space:nowrap;overflow-x:auto;scrollbar-width:none;max-width:100%;}
+    .vc-role {height:34px;display:flex;flex-direction:column;justify-content:center;min-width:0;}
+    .vc-role b {font-size:.75rem;line-height:17px;}
+    .vc-role span {display:block;white-space:nowrap;overflow-x:auto;scrollbar-width:none;font-size:.72rem;line-height:17px;}
+    .vc-role-open {color:#147347;font-weight:800;}
+    .vc-role-booked {color:#bc2635;font-weight:800;}
+    .vc-right-status {display:flex;justify-content:center;align-items:center;text-align:center;box-sizing:border-box;width:100%;height:58px;padding:4px 7px;border-radius:5px;font-size:.77rem;font-weight:850;line-height:1.2;overflow-wrap:anywhere;}
     .vc-right-status.missing {background:#ffe04b;color:#292000;border:2px solid #c99a00;}
     .vc-right-status.ready {background:#e1f4e8;color:#17633f;border:1px solid #c6e6d2;}
     .vc-right-status.away {background:#e5f0fa;color:#1b557f;border:1px solid #d0e3f3;}
-    [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {min-width:92px!important;min-height:32px!important;height:32px!important;width:100%!important;padding:0 4px!important;border-radius:8px!important;font-size:.77rem!important;font-weight:700!important;white-space:nowrap!important;position:static!important;}
-    [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] {flex-wrap:nowrap!important;}
-    [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
-    [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 124px!important;width:124px!important;min-width:124px!important;}
-    .vc-two-line span + span {border-left:1px solid #e5edf4;padding-left:9px;}
-    </style>""",unsafe_allow_html=True)
-
-
-UI_RELEASE = "2026-10-26.11"
-
-
-WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
+    [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {box-sizing:border-box;min-width:64px!important;max-width:64px!important;width:64px!important;min-height:64px!important;height:64px!important;padding:5px!important;border-radius:5px!important;font-size:.8rem!important;font-weight:750!important;white-space:normal!important;}
+    [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button p {max-width:45px!important;line-height:1.35!important;text-align:center;white-space:normal!important;}
+    </style>""", unsafe_allow_html=True)
 
 
 def compact_game_row(game, assigned, status, staff, on_open):
-    """Three horizontal lines of match information, plus Vedi scheda."""
+    """Same 87px band for every source: category/date/teams/staff/roles/state/open."""
     from datetime import datetime
     from vc_view_game import role_names
     d = datetime.fromisoformat(game["date"])
     short = hashlib.sha256(game["game_key"].encode("utf-8")).hexdigest()[:14]
-    date_info = f"{WEEKDAYS[d.weekday()]} {d:%d/%m} · {game['time']}"
-    event_info = f"{game['source']} · {game['category']} · Gara {game.get('game_number') or '—'}"
-    teams = f"{game['home_team']} – {game['away_team']}"
-    if game.get("played"):
-        teams += f" · {game.get('home_sets')}–{game.get('away_sets')}"
-    state_class = " vc-ready" if status == "Completa" else " vc-away" if status == "Trasferta" else ""
-    venue = f"{'CASA' if game['is_home'] else 'TRASFERTA'} · {game.get('venue') or 'Palestra da indicare'}"
-    if game.get("address"):
-        venue += f" · {game['address']}"
+    category = str(game.get("category") or "—")
+    match = re.search(r"\bU\s*(\d+)", category, flags=re.I)
+    category_short = "U" + match.group(1) if match else category
+    source = "PGS" if "PGS" in game["source"].upper() else game["source"]
     coaches = ", ".join(x for x in (staff.get("coach1"), staff.get("coach2")) if x) or "—"
     managers = ", ".join(staff.get("managers", "").splitlines()).strip(", ") or "—"
-    coach_info = f"Allenatori: {coaches}"
-    manager_info = f"Dirigenti: {managers}"
-    referee_name = role_names(assigned, "referee")
-    scorer_name = role_names(assigned, "scorer")
+    venue = game.get("venue") or "Palestra da indicare"
+    if game.get("address"):
+        venue += " · " + game["address"]
+    score = f" · {game.get('home_sets')}–{game.get('away_sets')}" if game.get("played") else ""
 
-    def cell(value, style=""):
-        safe = _e(value)
-        return f'<span class="{style}" title="{safe}" tabindex="0">{safe}</span>'
+    def line(value, cls):
+        return f'<span class="{cls}" title="{_e(value)}" tabindex="0">{_e(value)}</span>'
 
-    top = cell(date_info, "vc-strong") + cell(event_info) + cell(teams, "vc-strong")
-    if game["is_home"]:
-        # Verde = posto libero; rosso = nominativo già prenotato.
-        ref_value = "Arbitro" + (f": {referee_name}" if referee_name else "")
-        scorer_value = "Refertista" + (f": {scorer_name}" if scorer_name else "")
-        ref_cell = cell(ref_value, "vc-role-booked" if referee_name else "vc-role-open")
-        scorer_cell = cell(scorer_value, "vc-role-booked" if scorer_name else "vc-role-open")
-        bottom = cell(venue) + ref_cell + scorer_cell
-        row_type = "vc-line-2"
-    else:
-        # Nelle trasferte non mostrare nessun campo arbitro/refertista.
-        bottom = cell(venue)
-        row_type = "vc-line-2 vc-line-away"
-    staff_line = cell(coach_info) + cell(manager_info)
-    with st.container(border=False, key="vcrow_" + short):
-        left, right = st.columns([9, 1.2], vertical_alignment="center", gap="small")
+    category_box = ('<div class="vc-block vc-category" title="'+_e(category+' · '+game['source'])+'">'
+        '<strong>'+_e(category_short)+'</strong><span class="vc-source">'+_e(source)+'</span>'
+        '<span class="vc-number">N. '+_e(game.get('game_number') or '—')+'</span></div>')
+    date_box = ('<div class="vc-block vc-date">'+line(f"{WEEKDAYS[d.weekday()]} {d:%d/%m}", "")+
+        line(game['time'], "")+line("CASA" if game['is_home'] else "TRASFERTA", "vc-side")+'</div>')
+    fixture_box = ('<div class="vc-block vc-fixture">'+line(game['home_team'], 'vc-line-1')+
+        line(game['away_team']+score, 'vc-line-2')+line(venue, 'vc-line-3')+'</div>')
+    staff_box = ('<div class="vc-block vc-staff"><span>'+line('ALL. '+coaches, 'vc-scroll')+
+        '</span><span>'+line('DIR. '+managers, 'vc-scroll')+'</span></div>')
+    roles = ''
+    if game['is_home']:
+        for label, role in [('Arbitro', 'referee'), ('Refertista', 'scorer')]:
+            name = role_names(assigned, role)
+            cls = 'vc-role-booked' if name else 'vc-role-open'
+            roles += '<div class="vc-role '+cls+'"><b>'+label+'</b>'
+            if name:
+                roles += line(name, '')
+            roles += '</div>'
+    roles_box = '<div class="vc-block vc-roles">'+roles+'</div>'
+    status_type = 'away' if status == 'Trasferta' else 'ready' if status == 'Completa' else 'missing'
+    state_box = ('<div class="vc-block vc-state-block"><div class="vc-right-status '+status_type+
+                 '" role="status">'+_e(status)+'</div></div>')
+    html = ('<div class="vc-two-line" data-ui-release="'+UI_RELEASE+'" tabindex="0" '
+            'aria-label="Dati gara in blocchi centrati; scorri i testi lunghi"><div class="vc-blocks">'+
+            category_box+date_box+fixture_box+staff_box+roles_box+state_box+'</div></div>')
+    with st.container(border=False, key='vcrow_'+short):
+        left, right = st.columns([12, 1], vertical_alignment='center', gap='small')
         with left:
-            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.11" tabindex="0" aria-label="Dati gara su tre righe; scorri i campi lunghi per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
-                        '</div><div class="' + row_type + '">' + bottom +
-                        '</div><div class="vc-line-3">' + staff_line + '</div></div></div>',
-                        unsafe_allow_html=True)
+            st.markdown(html, unsafe_allow_html=True)
         with right:
-            # Button must be above the yellow/neutral availability notice.
-            if st.button("Vedi scheda", key="vcopen_" + short,
-                         help="Apri la scheda completa", use_container_width=True):
-                on_open(game["game_key"])
-            if status != "Trasferta":
-                status_type = "ready" if status == "Completa" else "missing"
-                st.markdown(f'<div class="vc-right-status {status_type}" role="status">{_e(status)}</div>',
-                            unsafe_allow_html=True)
+            if st.button('Vedi scheda', key='vcopen_'+short,
+                         help='Apri la scheda completa', use_container_width=True):
+                on_open(game['game_key'])
 
 
 def week_tabs(weeks, selected_week):
