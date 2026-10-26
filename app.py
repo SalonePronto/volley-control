@@ -9,6 +9,21 @@ import hmac
 import os
 import streamlit as st
 
+# Streamlit can rerun app.py while retaining pre-deployment imported modules.
+# Refresh only modules missing the capabilities required by this release;
+# cached database resources and stored games remain untouched.
+import importlib
+import inspect
+import vc_core as _core
+if not hasattr(_core, "PGS_TEAMS"):
+    importlib.reload(_core)
+import vc_pgs as _pgs
+if "team" not in inspect.signature(_pgs.normalize_pgs).parameters:
+    importlib.reload(_pgs)
+import vc_ui as _ui
+if not hasattr(_ui, "week_tabs"):
+    importlib.reload(_ui)
+
 from vc_core import (DISPLAY_FIELDS, FIPAV_TEAMS, PGS_TEAM, PGS_TEAMS, coverage, download_fipav,
                      parse_date, parse_time, week_label, week_start)
 from vc_storage import (audit_for_game, conflicts_for_game, list_games, modify_game,
