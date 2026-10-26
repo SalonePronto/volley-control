@@ -10,27 +10,21 @@ def _e(value):
 
 def inject_calendar_css():
     st.markdown("""<style>
-    [class*="st-key-vcrow_"] {background:#ffffff; border:1px solid #dbe6f0; border-radius:11px;
-        padding:7px 10px; margin-bottom:5px; box-shadow:0 1px 2px rgba(25,52,78,.035);}
+    [class*="st-key-vcrow_"] {background:#fff;border:1px solid #dbe6f0;border-radius:10px;padding:6px 9px;margin-bottom:5px;box-shadow:0 1px 2px rgba(25,52,78,.04);}
+    [class*="st-key-vcrow_"] [data-testid="stColumn"] {min-width:0;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {gap:.45rem;}
-    [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:0;min-width:0;}
-    [class*="st-key-vcrow_"] [data-testid="stColumn"] {min-width:0;overflow-wrap:anywhere;}
-    [class*="st-key-vcrow_"] .vc-date {font-weight:800;font-size:.88rem;line-height:1.3;white-space:normal;overflow-wrap:anywhere;color:#193f64;}
-    [class*="st-key-vcrow_"] .vc-small {font-size:.73rem;color:#5b6f83;line-height:1.3;}
-    [class*="st-key-vcrow_"] .vc-team {font-weight:750;font-size:.91rem;line-height:1.3;color:#183657;overflow-wrap:anywhere;}
-    [class*="st-key-vcrow_"] .vc-facility,[class*="st-key-vcrow_"] .vc-staff,[class*="st-key-vcrow_"] .vc-names {
-        font-size:.73rem;line-height:1.35;color:#5c7084;white-space:normal;overflow-wrap:anywhere;word-break:normal;}
-    [class*="st-key-vcrow_"] .vc-state {font-size:.82rem;font-weight:800;line-height:1.4;color:#b06b13;}
-    [class*="st-key-vcrow_"] .vc-state.good {color:#16704b;}
-    [class*="st-key-vcrow_"] .vc-state.away {color:#246699;}
-    [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {min-height:35px!important;height:35px!important;
-        min-width:92px!important;width:100%!important;padding:0 .3rem!important;border-radius:9px!important;
-        font-size:.76rem!important;font-weight:700!important;white-space:nowrap!important;}
-    @media(max-width:750px) {
-      [class*="st-key-vcrow_"] {padding:8px;}
-      [class*="st-key-vcrow_"] .vc-date,[class*="st-key-vcrow_"] .vc-team {white-space:normal;}
-      [class*="st-key-vcrow_"] .vc-facility,[class*="st-key-vcrow_"] .vc-staff,[class*="st-key-vcrow_"] .vc-names {white-space:normal;}
-    }
+    [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:0;}
+    .vc-two-line {width:100%;min-width:0;overflow:hidden;}
+    .vc-line-1,.vc-line-2 {display:grid;align-items:center;gap:11px;height:20px;width:100%;min-width:0;font-size:.77rem;line-height:20px;color:#4c647b;}
+    .vc-line-1 {grid-template-columns:minmax(0,1.18fr) minmax(0,.98fr) minmax(0,3.9fr) minmax(0,1.35fr);}
+    .vc-line-2 {grid-template-columns:minmax(0,3.5fr) minmax(0,1.55fr) minmax(0,1.65fr) minmax(0,1.65fr);}
+    .vc-two-line span {display:block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+    .vc-two-line .vc-strong {font-weight:750;color:#193b5c;}
+    .vc-two-line .vc-state {font-weight:780;color:#aa6a14;}
+    .vc-two-line .vc-away {color:#246699;}
+    .vc-two-line .vc-ready {color:#16704b;}
+    [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {min-width:92px!important;min-height:34px!important;height:34px!important;width:100%!important;padding:0 4px!important;border-radius:8px!important;font-size:.77rem!important;font-weight:700!important;white-space:nowrap!important;}
+    @media(max-width:680px) {.vc-two-line {overflow-x:auto;}.vc-line-1,.vc-line-2 {min-width:660px;}}
     </style>""",unsafe_allow_html=True)
 
 
@@ -38,39 +32,40 @@ WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
 
 
 def compact_game_row(game, assigned, status, staff, on_open):
-    """All required information stays on one compact calendar card."""
+    """Exactly two horizontal lines of match information, plus Vedi scheda."""
     from datetime import datetime
     from vc_view_game import role_names
     d = datetime.fromisoformat(game["date"])
     short = hashlib.sha256(game["game_key"].encode("utf-8")).hexdigest()[:14]
-    location = "CASA" if game["is_home"] else "TRASFERTA"
-    coaches = ", ".join(x for x in (staff.get("coach1"),staff.get("coach2")) if x) or "—"
-    managers = ", ".join(staff.get("managers","").splitlines()).strip(", ") or "—"
-    ref = role_names(assigned,"referee") or ("Da assegnare" if game["is_home"] else "Non richiesto")
-    scorer = role_names(assigned,"scorer") or ("Da assegnare" if game["is_home"] else "Non richiesto")
-    tone = "good" if status=="Completa" else "away" if status=="Trasferta" else ""
-    score = ""
+    date_info = f"{WEEKDAYS[d.weekday()]} {d:%d/%m} · {game['time']}"
+    event_info = f"{game['category']} · Gara {game.get('game_number') or '—'}"
+    teams = f"{game['home_team']} – {game['away_team']}"
     if game.get("played"):
-        score = f" · {_e(game.get('home_sets'))}–{_e(game.get('away_sets'))}"
-    with st.container(border=False,key="vcrow_"+short):
-        a,b,c,action = st.columns([1.7,5.0,3.3,1.55],vertical_alignment="center",gap="small")
-        with a:
-            st.markdown(
-              f'<div class="vc-date">{WEEKDAYS[d.weekday()]} {d:%d/%m} · {_e(game["time"])}</div>'
-              f'<div class="vc-small">{_e(game["category"])} · Gara {_e(game.get("game_number") or "—")}</div>',
-              unsafe_allow_html=True)
-        with b:
-            st.markdown(
-              f'<div class="vc-team">{_e(game["home_team"])} – {_e(game["away_team"])}{score}</div>'
-              f'<div class="vc-facility">{location} · {_e(game.get("venue") or "Palestra da indicare")} · {_e(game.get("address") or "Indirizzo non presente")}</div>'
-              f'<div class="vc-staff">All.: {_e(coaches)} &nbsp;·&nbsp; Dir.: {_e(managers)}</div>',
-              unsafe_allow_html=True)
-        with c:
-            st.markdown(
-              f'<div class="vc-state {tone}">{_e(status)}</div>'
-              f'<div class="vc-names">Arbitro: {_e(ref)}</div>'
-              f'<div class="vc-names">Refertista: {_e(scorer)}</div>',
-              unsafe_allow_html=True)
-        with action:
-            if st.button("Vedi scheda",key="vcopen_"+short,help="Apri scheda e prenotazioni",use_container_width=True):
+        teams += f" · {game.get('home_sets')}–{game.get('away_sets')}"
+    state_class = " vc-ready" if status == "Completa" else " vc-away" if status == "Trasferta" else ""
+    venue = f"{'CASA' if game['is_home'] else 'TRASFERTA'} · {game.get('venue') or 'Palestra da indicare'}"
+    if game.get("address"):
+        venue += f" · {game['address']}"
+    coaches = ", ".join(x for x in (staff.get("coach1"), staff.get("coach2")) if x) or "—"
+    managers = ", ".join(staff.get("managers", "").splitlines()).strip(", ") or "—"
+    personnel = f"All.: {coaches} · Dir.: {managers}"
+    referee = f"Arbitro: {role_names(assigned,'referee') or ('Da assegnare' if game['is_home'] else 'Non richiesto')}"
+    scorer = f"Refertista: {role_names(assigned,'scorer') or ('Da assegnare' if game['is_home'] else 'Non richiesto')}"
+
+    def cell(value, style=""):
+        safe = _e(value)
+        return f'<span class="{style}" title="{safe}">{safe}</span>'
+
+    top = (cell(date_info, "vc-strong") + cell(event_info) +
+           cell(teams, "vc-strong") + cell(status, "vc-state" + state_class))
+    bottom = cell(venue) + cell(personnel) + cell(referee) + cell(scorer)
+    with st.container(border=False, key="vcrow_" + short):
+        left, right = st.columns([9, 1.15], vertical_alignment="center", gap="small")
+        with left:
+            st.markdown('<div class="vc-two-line"><div class="vc-line-1">' + top +
+                        '</div><div class="vc-line-2">' + bottom + '</div></div>',
+                        unsafe_allow_html=True)
+        with right:
+            if st.button("Vedi scheda", key="vcopen_" + short,
+                         help="Apri la scheda completa", use_container_width=True):
                 on_open(game["game_key"])
