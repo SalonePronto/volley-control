@@ -4,7 +4,7 @@ import re
 from html import escape
 import streamlit as st
 
-UI_RELEASE = "2026-10-26.17"
+UI_RELEASE = "2026-10-26.18"
 WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
 
 
@@ -56,13 +56,19 @@ def inject_calendar_css():
     [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button p {max-width:45px!important;line-height:1.35!important;text-align:center;white-space:normal!important;}
 
     .st-key-vcfixture_area {container-type:inline-size;}
-    .vc-mobile-quick,.vc-quick-head,.vc-quick-legend {display:none;}
+    .vc-mobile-quick,.vc-quick-head,.vc-quick-legend,.vc-quick-summary {display:none;}
     .st-key-vcfixture_area [data-testid="stElementContainer"]:has(.vc-quick-head) {display:none;}
     .vc-dot {display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:16px;height:16px;border-radius:50%;font-size:11px;font-weight:900;line-height:1;vertical-align:middle;}
     .vc-dot-covered {background:#00e65f;color:#064020;border:1px solid #008d39;}
     .vc-dot-missing {background:#ff1744;color:white;border:1px solid #c9002a;}
     .vc-dot-na {color:#6b7b8b;background:none;font-size:14px;}
     .vc-role b {display:flex;justify-content:center;align-items:center;gap:4px;}
+    @media (max-width:1100px) {
+      .st-key-vc_week_metrics {display:none!important;}
+      .hero {padding:10px 12px!important;margin-bottom:8px!important;}
+      .hero h1 {font-size:1.25rem!important;}
+      .hero p {display:none;}
+    }
     @container (max-width:1000px) {
       .st-key-vcfixture_list {gap:2px!important;}
       [class*="st-key-vcrow_"] {padding:1px 4px;margin-bottom:0;border-radius:3px;}
@@ -80,6 +86,7 @@ def inject_calendar_css():
       .vc-mobile-source {font-size:10px;font-weight:650;margin-left:3px;}
       .vc-mobile-name {display:block;font-size:11px;font-weight:750;line-height:14px;overflow-wrap:anywhere;}
       .vc-mobile-role {text-align:center;}
+      .vc-quick-summary {display:block;text-align:center;font-size:12px;color:#4c647b;margin-bottom:5px;}
       .vc-quick-head {display:grid;grid-template-columns:minmax(0,1fr) 42px 38px 22px 22px 64px;gap:3px;padding:0 5px;text-align:center;font-size:10px;font-weight:750;color:#4c647b;}
       .vc-quick-legend {display:flex;justify-content:center;align-items:center;gap:12px;font-size:11px;color:#4c647b;margin-bottom:5px;}
       .vc-quick-legend .vc-dot {width:12px;height:12px;font-size:9px;}
@@ -107,8 +114,8 @@ def role_dot(game, assigned, role):
     return f'<span class="vc-dot vc-dot-{state}" role="img" aria-label="{label}" title="{label}">{mark}</span>'
 
 
-def quick_list_header():
-    st.markdown('<div class="vc-quick-legend"><span><span class="vc-dot vc-dot-covered">✓</span> Coperto</span>'
+def quick_list_header(summary=""):
+    st.markdown('<div class="vc-quick-summary">'+_e(summary)+'</div>'+'<div class="vc-quick-legend"><span><span class="vc-dot vc-dot-covered">✓</span> Coperto</span>'
                 '<span><span class="vc-dot vc-dot-missing">!</span> Mancante</span><span>— Trasferta</span></div>'
                 '<div class="vc-quick-head"><span>SQUADRA</span><span>DATA</span><span>ORA</span>'
                 '<span>ARB</span><span>REF</span><span>SCHEDA</span></div>', unsafe_allow_html=True)

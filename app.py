@@ -21,7 +21,7 @@ import vc_pgs as _pgs
 if "team" not in inspect.signature(_pgs.normalize_pgs).parameters:
     importlib.reload(_pgs)
 import vc_ui as _ui
-if getattr(_ui, "UI_RELEASE", "") != "2026-10-26.17":
+if getattr(_ui, "UI_RELEASE", "") != "2026-10-26.18":
     importlib.reload(_ui)
 
 from vc_core import (DISPLAY_FIELDS, FIPAV_TEAMS, PGS_TEAM, PGS_TEAMS, coverage, download_fipav,
@@ -260,11 +260,12 @@ if opening_view:
     st.caption("All'apertura vedi soltanto le gare della settimana corrente con arbitro o refertista mancante. Clicca sulla linguetta di una settimana, anche quella corrente, per vedere tutte le partite e prenotarti.")
 else:
     st.markdown(f"### {week_label(selected_week)}")
-metrics = st.columns(5)
-for c, title, value in zip(metrics, ["Partite", "Complete", "Da completare", "Arbitri mancanti", "Refertisti mancanti"],
-                           [len(week_games), statuses.count("Completa"), len(needs), missing_ref, missing_score]):
-    c.metric(title, value)
-st.caption("Gli incarichi disponibili sono calcolati dalle prenotazioni registrate. Le trasferte non richiedono incarichi interni.")
+with st.container(key="vc_week_metrics"):
+    metrics = st.columns(5)
+    for c, title, value in zip(metrics, ["Partite", "Complete", "Da completare", "Arbitri mancanti", "Refertisti mancanti"],
+                               [len(week_games), statuses.count("Completa"), len(needs), missing_ref, missing_score]):
+        c.metric(title, value)
+    st.caption("Gli incarichi disponibili sono calcolati dalle prenotazioni registrate. Le trasferte non richiedono incarichi interni.")
 
 
 @st.dialog("Scheda partita", width="large")
@@ -360,7 +361,7 @@ if opening_view and not needs:
 
 names = display_names(engine)
 with st.container(key="vcfixture_area"):
-    quick_list_header()
+    quick_list_header(f"{len(week_games)} gare · da coprire: ARB {missing_ref} · REF {missing_score}")
     with st.container(key="vcfixture_list"):
         for g in week_games:
             assigned = bookings.get(g["game_key"], [])
