@@ -192,7 +192,7 @@ metrics = st.columns(5)
 for c, title, value in zip(metrics, ["Partite", "Complete", "Da completare", "Arbitri mancanti", "Refertisti mancanti"],
                            [len(week_games), statuses.count("Completa"), len(needs), missing_ref, missing_score]):
     c.metric(title, value)
-st.caption("Per ora non sono attive anagrafiche e prenotazioni: gli incarichi casalinghi sono conteggiati come vacanti. Le trasferte non richiedono incarichi interni, salvo decisione dell'organizzatore.")
+st.caption("Gli incarichi disponibili sono calcolati dalle prenotazioni registrate. Le trasferte non richiedono incarichi interni.")
 
 
 @st.dialog("Scheda partita", width="large")
@@ -201,22 +201,35 @@ def show_game(key):
     if not game:
         st.error("Gara non più presente nell'archivio.")
         return
+    from html import escape
+    from vc_view_game import inject_sheet_css, info_card
+    inject_sheet_css()
     d = datetime.fromisoformat(game["date"])
-    st.subheader(f"{game['home_team']} – {game['away_team']}")
-    st.markdown(f"**{d:%d/%m/%Y} · {game['time']} · {game['category']}**")
-    st.write(f"**Fonte:** {game['source']} | **Numero gara:** {game['game_number'] or 'Non presente'} | **Sede:** {'Casa' if game['is_home'] else 'Trasferta'}")
-    st.write(f"**Palestra:** {game['venue']}")
-    st.write(f"**Indirizzo:** {game['address'] or 'Indirizzo non presente nel feed ufficiale'}")
-    st.write(f"**Copertura:** {assignment_status(game,assignments_for_games(engine,[key]).get(key,[]))}")
+    home = escape(str(game["home_team"]))
+    away = escape(str(game["away_team"]))
+    subtitle = escape(f"{d:%d/%m/%Y} · {game['time']} · {game['category']}")
+    st.markdown(
+        '<div style="background:linear-gradient(115deg,#e7f1fb,#f8fbff);border:1px solid #d6e4f1;'
+        'border-radius:14px;padding:16px 18px;margin-bottom:12px;overflow-wrap:anywhere">'
+        f'<div style="font-size:.8rem;color:#466985;font-weight:700">{subtitle}</div>'
+        f'<div style="font-weight:800;font-size:1.2rem;color:#193b5c;margin:5px 0">{home} – {away}</div>'
+        '</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2, gap="small")
+    with c1:
+        info_card("Gara", game.get("game_number") or "Numero non presente",
+                  f"Fonte: {game['source']} · {'Casa' if game['is_home'] else 'Trasferta'}")
+    with c2:
+        info_card("Palestra e indirizzo", game.get("venue") or "Non indicata",
+                  game.get("address") or "Indirizzo non presente nel calendario")
     render_game_people(engine,game,organizer=admin,viewer=viewer,persistent=PERSISTENT)
     if game.get("played"):
-        st.write(f"**Risultato:** {game.get('home_sets', '—')} – {game.get('away_sets', '—')}")
-        if game.get("sets"):
-            st.write("**Parziali:** " + ", ".join(f"{i+1}° {p['home']}–{p['away']}" for i, p in enumerate(game["sets"])))
+        score = f"{game.get('home_sets', '—')} – {game.get('away_sets', '—')}"
+        partials = ", ".join(f"{i+1}° {p['home']}–{p['away']}" for i, p in enumerate(game.get("sets") or []))
+        info_card("Risultato", score, "Parziali: " + partials if partials else "Parziali non disponibili")
     else:
-        st.write("**Risultato:** non ancora disponibile")
+        info_card("Risultato", "Non ancora disponibile")
     if game.get("notes"):
-        st.write(f"**Note:** {game['notes']}")
+        st.caption("Note: " + game["notes"])
     if admin:
         st.divider()
         st.markdown("#### PATTY · Correggi dato")
