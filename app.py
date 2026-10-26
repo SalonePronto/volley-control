@@ -21,7 +21,7 @@ import vc_pgs as _pgs
 if "team" not in inspect.signature(_pgs.normalize_pgs).parameters:
     importlib.reload(_pgs)
 import vc_ui as _ui
-if getattr(_ui, "UI_RELEASE", "") != "2026-10-26.4":
+if getattr(_ui, "UI_RELEASE", "") != "2026-10-26.6":
     importlib.reload(_ui)
 
 from vc_core import (DISPLAY_FIELDS, FIPAV_TEAMS, PGS_TEAM, PGS_TEAMS, coverage, download_fipav,
@@ -230,15 +230,13 @@ if not games:
 this_week = week_start(datetime.now(ZoneInfo("Europe/Rome")).date())
 weeks = sorted({week_start(g["date"]) for g in games})
 selected_week_str = st.session_state.get("selected_week", "")
-if selected_week_str:
-    selected_week = next((w for w in weeks if w.isoformat() == selected_week_str), None)
-else:
-    selected_week = None
-if selected_week is None:
-    selected_week = next((w for w in weeks if w >= this_week), weeks[-1])
+chosen_week = next((w for w in weeks if w.isoformat() == selected_week_str), None)
+opening_view = chosen_week is None  # Default: urgent home games in the current week.
+selected_week = chosen_week if chosen_week is not None else this_week
 
 from vc_ui import week_tabs
-week_tabs(weeks, selected_week)
+# The tab becomes selected only after a user explicitly asks for the full week.
+week_tabs(weeks, selected_week if not opening_view else None)
 
 week_games = [g for g in games if week_start(g["date"]) == selected_week]
 bookings = assignments_for_games(engine, [g["game_key"] for g in week_games])
@@ -247,7 +245,11 @@ needs = [s for s in statuses if s not in ("Trasferta", "Completa")]
 missing_ref = sum(max(0,int(g.get("required_referees",0))-sum(a["role"]=="referee" for a in bookings.get(g["game_key"],[]))) for g in week_games if g["is_home"])
 missing_score = sum(max(0,int(g.get("required_scorers",0))-sum(a["role"]=="scorer" for a in bookings.get(g["game_key"],[]))) for g in week_games if g["is_home"])
 
-st.markdown(f"### {week_label(selected_week)}")
+if opening_view:
+    st.markdown(f"### Incarichi da coprire · {week_label(this_week)}")
+    st.caption("All'apertura vedi soltanto le gare della settimana corrente con arbitro o refertista mancante. Clicca sulla linguetta di una settimana, anche quella corrente, per vedere tutte le partite e prenotarti.")
+else:
+    st.markdown(f"### {week_label(selected_week)}")
 metrics = st.columns(5)
 for c, title, value in zip(metrics, ["Partite", "Complete", "Da completare", "Arbitri mancanti", "Refertisti mancanti"],
                            [len(week_games), statuses.count("Completa"), len(needs), missing_ref, missing_score]):
@@ -343,10 +345,16 @@ def show_game(key):
                 st.caption("Nessuna modifica manuale.")
 
 
+if opening_view and not needs:
+    st.info("Nessuna gara con arbitro o refertista mancante nella settimana corrente. Puoi consultare tutte le gare scegliendo una linguetta settimanale.")
+
 for g in week_games:
     assigned = bookings.get(g["game_key"], [])
     status = assignment_status(g, assigned)
+    if opening_view and status in ("Completa", "Trasferta"):
+        continue
     staff = team_staff(engine, g.get("our_team_id") or "")
+    # Stessa scheda e stessi pulsanti Mi prenoto in apertura e in tutte le settimane.
     compact_game_row(g, assigned, status, staff, show_game)
 
 st.caption("Fonti: FIPAV Como e PGS Milano (U11 PVI ARDOR 2K GIUSSANO). Il recupero PGS viene eseguito solo dal pulsante organizzatore. Le date settimanali non riportano il numero di giornata.")
