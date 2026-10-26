@@ -23,9 +23,12 @@ def inject_calendar_css():
     .vc-line-1,.vc-line-2,.vc-line-3 {display:grid;align-items:center;gap:14px;height:23px;width:100%;font-size:.8rem;line-height:23px;color:#4c647b;}
     .vc-line-1 {grid-template-columns:max-content max-content minmax(max-content,1fr);}
     .vc-line-2 {grid-template-columns:minmax(max-content,1fr) max-content max-content;}
+    .vc-line-2.vc-line-away {grid-template-columns:minmax(max-content,1fr);}
     .vc-line-3 {grid-template-columns:minmax(max-content,1fr) minmax(max-content,1fr);}
     .vc-two-line span {display:block;white-space:nowrap;}
     .vc-two-line .vc-strong {font-weight:750;color:#193b5c;}
+    .vc-two-line .vc-role-open {color:#147347;font-weight:850;}
+    .vc-two-line .vc-role-booked {color:#bc2635;font-weight:850;}
     .vc-two-line .vc-state {font-weight:780;color:#aa6a14;}
     .vc-two-line .vc-away {color:#246699;}
     .vc-two-line .vc-ready {color:#16704b;}
@@ -44,7 +47,7 @@ def inject_calendar_css():
     </style>""",unsafe_allow_html=True)
 
 
-UI_RELEASE = "2026-10-26.7"
+UI_RELEASE = "2026-10-26.8"
 
 
 WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
@@ -69,21 +72,32 @@ def compact_game_row(game, assigned, status, staff, on_open):
     managers = ", ".join(staff.get("managers", "").splitlines()).strip(", ") or "—"
     coach_info = f"Allenatori: {coaches}"
     manager_info = f"Dirigenti: {managers}"
-    referee = f"Arbitro: {role_names(assigned,'referee') or ('Da assegnare' if game['is_home'] else 'Non richiesto')}"
-    scorer = f"Refertista: {role_names(assigned,'scorer') or ('Da assegnare' if game['is_home'] else 'Non richiesto')}"
+    referee_name = role_names(assigned, "referee")
+    scorer_name = role_names(assigned, "scorer")
 
     def cell(value, style=""):
         safe = _e(value)
         return f'<span class="{style}" title="{safe}">{safe}</span>'
 
     top = cell(date_info, "vc-strong") + cell(event_info) + cell(teams, "vc-strong")
-    bottom = cell(venue) + cell(referee) + cell(scorer)
+    if game["is_home"]:
+        # Verde = posto libero; rosso = nominativo già prenotato.
+        ref_value = "Arbitro" + (f": {referee_name}" if referee_name else "")
+        scorer_value = "Refertista" + (f": {scorer_name}" if scorer_name else "")
+        ref_cell = cell(ref_value, "vc-role-booked" if referee_name else "vc-role-open")
+        scorer_cell = cell(scorer_value, "vc-role-booked" if scorer_name else "vc-role-open")
+        bottom = cell(venue) + ref_cell + scorer_cell
+        row_type = "vc-line-2"
+    else:
+        # Nelle trasferte non mostrare nessun campo arbitro/refertista.
+        bottom = cell(venue)
+        row_type = "vc-line-2 vc-line-away"
     staff_line = cell(coach_info) + cell(manager_info)
     with st.container(border=False, key="vcrow_" + short):
         left, right = st.columns([9, 1.8], vertical_alignment="center", gap="small")
         with left:
-            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.7" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
-                        '</div><div class="vc-line-2">' + bottom +
+            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.8" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
+                        '</div><div class="' + row_type + '">' + bottom +
                         '</div><div class="vc-line-3">' + staff_line + '</div></div></div>',
                         unsafe_allow_html=True)
         with right:
@@ -91,9 +105,10 @@ def compact_game_row(game, assigned, status, staff, on_open):
             if st.button("Vedi scheda", key="vcopen_" + short,
                          help="Apri la scheda completa", use_container_width=True):
                 on_open(game["game_key"])
-            status_type = "away" if status == "Trasferta" else "ready" if status == "Completa" else "missing"
-            st.markdown(f'<div class="vc-right-status {status_type}" role="status">{_e(status)}</div>',
-                        unsafe_allow_html=True)
+            if status != "Trasferta":
+                status_type = "ready" if status == "Completa" else "missing"
+                st.markdown(f'<div class="vc-right-status {status_type}" role="status">{_e(status)}</div>',
+                            unsafe_allow_html=True)
 
 
 def week_tabs(weeks, selected_week):
