@@ -149,3 +149,33 @@ def conflicts_for_game(engine, key):
     with engine.connect() as cx:
         return cx.execute(text("""SELECT field,incoming,detected_at FROM import_conflicts
           WHERE game_key=:key ORDER BY field"""), {"key": key}).mappings().all()
+
+
+def create_manual_game(engine, our_team, date, hour, opponent, is_home, venue,
+                       address='', game_number='', category='', notes=''):
+    # Explicit PATTY-only fallback, never presented as automatic FIPAV / PGS data.
+    from uuid import uuid4
+    from vc_core import parse_date, parse_time, SEASON
+    if not opponent.strip():
+        raise ValueError('Devi indicare la squadra avversaria.')
+    game_id=uuid4().hex
+    team_name=our_team['team_name']
+    match={
+        'game_key':'MANUAL:'+SEASON+':'+game_id,
+        'source':'MANUAL', 'season':SEASON, 'group_id':'', 'official_id':game_id,
+        'game_number':game_number.strip(), 'category':category.strip() or our_team['category'],
+        'our_team_id':str(our_team['team_id']), 'our_team_name':team_name, 'is_home':bool(is_home),
+        'home_team':team_name if is_home else opponent.strip(),
+        'away_team':opponent.strip() if is_home else team_name,
+        'date':parse_date(date), 'time':parse_time(hour),
+        'venue':venue.strip() or 'Palestra non indicata', 'address':address.strip(),
+        'played':False, 'home_sets':None, 'away_sets':None, 'sets':[], 'notes':notes.strip(),
+        'required_referees':1 if is_home else 0,
+        'required_scorers':1 if is_home else 0, 'hidden':False,
+    }
+    save_import(engine,[match])
+    with engine.begin() as cx:
+        cx.execute(text("""INSERT INTO game_audit(game_key,field,old_value,new_value,actor,changed_at,note)
+          VALUES(:key,'created',NULL,:new,'PATTY',:now,'Inserimento manuale')"""),
+          dict(key=match['game_key'],new=json.dumps(match,ensure_ascii=False),now=utcnow()))
+    return match
