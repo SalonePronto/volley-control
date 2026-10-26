@@ -13,13 +13,26 @@ def render_game_people(engine,game,organizer=False,viewer=None,persistent=False)
     key=game["game_key"]
     assigned=assignments_for_games(engine,[key]).get(key,[])
     staff=team_staff(engine,game.get("our_team_id") or "")
-    st.write(f"**Primo allenatore:** {staff['coach1'] or 'Da inserire'}")
-    st.write(f"**Secondo allenatore:** {staff['coach2'] or 'Da inserire'}")
-    st.write(f"**Dirigenti:** {staff['managers'].replace(chr(10),', ') or 'Da inserire'}")
+    st.markdown("#### Staff della squadra")
+    col1,col2=st.columns(2)
+    with col1:
+        st.metric("Primo allenatore",staff["coach1"] or "Da inserire")
+    with col2:
+        st.metric("Secondo allenatore",staff["coach2"] or "—")
+    st.caption("Dirigenti: "+(", ".join(staff["managers"].splitlines()) or "Da inserire"))
+    st.markdown("#### Incarichi e prenotazioni")
     for role,label in ROLES.items():
         name=role_names(assigned,role)
         st.write(f"**{label}:** {name or ('Da assegnare' if game['is_home'] else 'Non richiesto')}")
-    if not game["is_home"] or not persistent or (not organizer and not viewer): return
+    if not game["is_home"]:
+        st.info("Trasferta: nessun arbitro o refertista interno richiesto.")
+        return
+    if not persistent:
+        st.warning("Prenotazioni non disponibili: serve attivare l'archivio permanente condiviso.")
+        return
+    if not organizer and not viewer:
+        st.info("Per prenotarti, accedi come arbitro o refertista dall'area personale sopra il calendario. Dopo l'approvazione di PATTY potrai prenotare qui.")
+        return
     eligible=people(engine,approved_only=True) if organizer else [viewer]
     for role,label in ROLES.items():
         total=int(game.get("required_referees" if role=="referee" else "required_scorers",0))
@@ -34,7 +47,9 @@ def render_game_people(engine,game,organizer=False,viewer=None,persistent=False)
                             st.rerun()
                         except ValueError as exc: st.error(str(exc))
                 continue
-            if not options: continue
+            if not options:
+                st.caption(f"{label}: nessuna persona abilitata disponibile per prenotarsi.")
+                continue
             chosen=st.selectbox(label,list(options),format_func=lambda p:options[p],key=f"pick_{key}_{role}_{slot}") if organizer else viewer["id"]
             if st.button(f"Prenota {label}",key=f"book_{key}_{role}_{slot}"):
                 try:
