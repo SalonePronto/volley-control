@@ -17,6 +17,8 @@ from vc_people import init_people, apply_fixed, assignments_for_games
 from vc_view_people import render_person_access
 from vc_view_admin import render_club_admin
 from vc_view_game import render_game_people, assignment_status, role_names
+from vc_ui import inject_calendar_css, compact_game_row
+from vc_people import team_staff
 
 st.set_page_config(page_title="VOLLEY CONTROL", page_icon="🏐", layout="wide")
 
@@ -55,6 +57,7 @@ st.markdown("""<style>
 [data-testid="stMetric"]{background:white;padding:13px;border:1px solid #dae5f0;border-radius:12px}
 .stButton>button{border-radius:10px;min-height:40px}
 </style>""", unsafe_allow_html=True)
+inject_calendar_css()
 st.markdown('<div class="hero"><h1>🏐 VOLLEY CONTROL</h1><p>Calendario settimanale · FIPAV Como · PGS Milano in preparazione</p></div>', unsafe_allow_html=True)
 
 if not DATABASE_URL:
@@ -258,28 +261,10 @@ def show_game(key):
                 st.caption("Nessuna modifica manuale.")
 
 
-ITALIAN_WEEKDAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
 for g in week_games:
-    d = datetime.fromisoformat(g["date"])
-    status = assignment_status(g,bookings.get(g["game_key"],[]))
-    result = f" · Ris. {g.get('home_sets')}–{g.get('away_sets')}" if g.get("played") else ""
-    with st.container(border=True):
-        a, b, c = st.columns([2, 4, 4], vertical_alignment="center")
-        with a:
-            st.markdown(f"**{ITALIAN_WEEKDAYS[d.weekday()]} {d:%d/%m/%Y}**")
-            st.markdown(f"### {g['time']}")
-            st.caption(f"{g['category']} · Gara {g.get('game_number') or '—'}")
-        with b:
-            st.markdown(f"**{g['home_team']} – {g['away_team']}**")
-            st.write(f"{'🏠 CASA' if g['is_home'] else '🚗 TRASFERTA'} · {g['source']}{result}")
-            st.caption(f"{g['venue']} · {g['address'] or 'Indirizzo ufficiale non presente'}")
-        with c:
-            st.markdown(f"**{status}**")
-            assigned=bookings.get(g["game_key"],[])
-            ref=role_names(assigned,"referee") or ("Da assegnare" if g["is_home"] else "Non richiesto")
-            scorer=role_names(assigned,"scorer") or ("Da assegnare" if g["is_home"] else "Non richiesto")
-            st.caption(f"Arbitro: {ref} · Refertista: {scorer}")
-            if st.button("Apri scheda partita", key=f"game_{g['game_key']}", use_container_width=True):
-                show_game(g["game_key"])
+    assigned = bookings.get(g["game_key"], [])
+    status = assignment_status(g, assigned)
+    staff = team_staff(engine, g.get("our_team_id") or "")
+    compact_game_row(g, assigned, status, staff, show_game)
 
 st.caption("Fonti: FIPAV Como (dati recuperati online da Python). PGS Milano U11 PVI ARDOR 2K GIUSSANO: collegamento automatico ancora da completare. Le date settimanali non riportano il numero di giornata.")
