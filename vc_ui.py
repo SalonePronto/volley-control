@@ -4,7 +4,7 @@ import re
 from html import escape
 import streamlit as st
 
-UI_RELEASE = "2026-10-26.13"
+UI_RELEASE = "2026-10-26.14"
 WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
 
 
@@ -23,6 +23,7 @@ def inject_calendar_css():
     [class*="st-key-vcrow_"] [data-testid="stElementContainer"]:has(.vc-two-line),
     [class*="st-key-vcrow_"] [data-testid="stMarkdown"]:has(.vc-two-line),
     [class*="st-key-vcrow_"] [data-testid="stMarkdown"] > div:has(.vc-two-line) {height:69px!important;min-height:69px!important;}
+    [class*="st-key-vcrow_"] [data-testid="stMarkdownContainer"]:has(.vc-two-line) {margin:0!important;}
     .vc-two-line {width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;}
     .vc-blocks {display:grid;grid-template-columns:64px 92px minmax(220px,1fr) 118px 122px 128px;gap:7px;align-items:center;height:69px;min-width:820px;text-align:center;color:#4c647b;font-size:.8rem;}
     .vc-block {min-width:0;box-sizing:border-box;height:69px;display:flex;flex-direction:column;justify-content:center;align-items:stretch;}
