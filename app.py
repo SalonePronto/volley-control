@@ -57,7 +57,7 @@ for t in TEAMS:
                 st.json(result["data"],expanded=False)
         else:
             st.error(f'Download non riuscito: {result["error"]}')
-        st.caption(result["url"])
+        st.caption(result["url"] if result is not None else API.format(t["girone"]))
 if results:
     report=[{"squadra":t["name"],"girone":t["girone"],**{k:v for k,v in results[str(t["girone"])].items() if k!="data"}} for t in TEAMS]
     st.download_button("Scarica report della prova",json.dumps(report,ensure_ascii=False,indent=2),file_name="volley_control_test_report.json",mime="application/json")
