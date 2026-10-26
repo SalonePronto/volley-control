@@ -21,7 +21,7 @@ import vc_pgs as _pgs
 if "team" not in inspect.signature(_pgs.normalize_pgs).parameters:
     importlib.reload(_pgs)
 import vc_ui as _ui
-if not hasattr(_ui, "week_tabs"):
+if getattr(_ui, "UI_RELEASE", "") != "2026-10-26.4":
     importlib.reload(_ui)
 
 from vc_core import (DISPLAY_FIELDS, FIPAV_TEAMS, PGS_TEAM, PGS_TEAMS, coverage, download_fipav,
@@ -34,7 +34,11 @@ from vc_view_admin import render_club_admin
 from vc_view_game import render_game_people, assignment_status, role_names
 from vc_ui import inject_calendar_css, compact_game_row
 from vc_pgs import download_pgs
+import vc_pending as _pending
+if getattr(_pending, "PENDING_RELEASE", "") != "2026-10-26.4":
+    importlib.reload(_pending)
 from vc_pending import init_pending, list_pending, save_pending
+from vc_view_pending import render_pending_editor
 from vc_people import team_staff
 
 st.set_page_config(page_title="VOLLEY CONTROL", page_icon="🏐", layout="wide")
@@ -174,11 +178,13 @@ with right:
     elif st.button("🔒 PATTY" + alert_dot, use_container_width=True, type="primary", help=f"{len(pending_games)} gare con dati primari incompleti" if pending_games else None):
         patty_login()
 
-# Visible entry point; downloading/importing stays organizer-only.
-if st.button("↻ Aggiorna tutti i calendari", use_container_width=True):
-    if not admin:
-        patty_login()
-    else:
+if "initial_errors" in st.session_state:
+    for error in st.session_state.pop("initial_errors"):
+        st.error(f"Download iniziale: {error}")
+
+if admin:
+    st.markdown("#### PATTY · Comandi riservati")
+    if st.button("↻ Aggiorna tutti i calendari", use_container_width=True):
         with st.spinner("Python scarica FIPAV e PGS, seleziona le nostre squadre e aggiorna le settimane…"):
             report, errors = run_sync(False, include_pgs=True)
         if report:
@@ -186,26 +192,18 @@ if st.button("↻ Aggiorna tutti i calendari", use_container_width=True):
             st.success(f"{detail}. Archivio: {report['inserted']} nuove, {report['updated']} aggiornate, {report['unchanged']} invariate.")
         for error in errors:
             st.error(error)
-        # The button is above the week selector but below PATTY: refresh the
-        # persistent indicator immediately, without requiring another click.
         st.session_state.sync_report = report
         st.session_state.sync_errors = errors
         st.rerun()
-if "sync_report" in st.session_state:
-    previous_report = st.session_state.pop("sync_report")
-    if previous_report:
-        detail = " · ".join(f"{name}: {count} gare" for name, count in previous_report["sources"].items())
-        st.success(f"{detail}. Archivio: {previous_report['inserted']} nuove, {previous_report['updated']} aggiornate, {previous_report['unchanged']} invariate.")
-    for error in st.session_state.pop("sync_errors", []):
-        st.error(error)
-st.caption("Aggiorna calendari e risultati disponibili di tutte le squadre configurate. Le gare già presenti non vengono duplicate. Accesso organizzatore richiesto.")
+    if "sync_report" in st.session_state:
+        previous_report = st.session_state.pop("sync_report")
+        if previous_report:
+            detail = " · ".join(f"{name}: {count} gare" for name, count in previous_report["sources"].items())
+            st.success(f"{detail}. Archivio: {previous_report['inserted']} nuove, {previous_report['updated']} aggiornate, {previous_report['unchanged']} invariate.")
+        for error in st.session_state.pop("sync_errors", []):
+            st.error(error)
+    st.caption("Aggiorna calendari e risultati disponibili di tutte le squadre configurate. Le gare già presenti non vengono duplicate. Le correzioni manuali PATTY vengono conservate.")
 
-if "initial_errors" in st.session_state:
-    for error in st.session_state.pop("initial_errors"):
-        st.error(f"Download iniziale: {error}")
-
-if admin:
-    st.markdown("#### PATTY · Comandi riservati")
     if st.button("↻ Aggiorna tutti i risultati", use_container_width=True):
         with st.spinner("Aggiorno risultati e parziali di tutte le squadre configurate…"):
             report, errors = run_sync(True, include_pgs=True)
@@ -218,12 +216,7 @@ if admin:
             st.success(f"Risultati: {result_report['updated']} gare aggiornate, {result_report['unchanged']} invariate.")
         for error in st.session_state.pop("results_errors", []):
             st.error(error)
-    if pending_games:
-        with st.expander(f"🔵 Gare con dati primari incompleti ({len(pending_games)})", expanded=False):
-            for item in pending_games:
-                missing = ", ".join(label for key, label in (("date", "data"), ("time", "ora")) if not item.get(key))
-                st.markdown(f"**{item['source']} · {item['category']} · Gara {item['game_number']}** — {item['home_team']} – {item['away_team']}")
-                st.caption(f"Da completare: {missing}. L'avviso si aggiorna al prossimo recupero dei calendari o dei risultati.")
+    render_pending_editor(engine, pending_games, persistent=PERSISTENT)
     render_club_admin(engine, PERSISTENT)
 
 games = list_games(engine)

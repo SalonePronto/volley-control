@@ -39,6 +39,9 @@ def inject_calendar_css():
     </style>""",unsafe_allow_html=True)
 
 
+UI_RELEASE = "2026-10-26.4"
+
+
 WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
 
 
@@ -75,7 +78,7 @@ def compact_game_row(game, assigned, status, staff, on_open):
     with st.container(border=False, key="vcrow_" + short):
         left, right = st.columns([9, 1.15], vertical_alignment="center", gap="small")
         with left:
-            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.3" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
+            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.4" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
                         '</div><div class="vc-line-2">' + bottom +
                         '</div><div class="vc-line-3">' + staff_line + '</div></div></div>',
                         unsafe_allow_html=True)
@@ -86,16 +89,14 @@ def compact_game_row(game, assigned, status, staff, on_open):
 
 
 def week_tabs(weeks, selected_week):
-    """Small blue filing tabs, one or two rows; scroll sideways on narrow screens."""
+    """Blue filing tabs wrap only when the available row is full."""
     from vc_core import week_label
-    count = len(weeks)
-    columns = count if count <= 6 else (count + 1) // 2
     st.markdown(f"""<style>
-    .st-key-vcweek_tabs {{display:grid!important;grid-template-columns:repeat({columns},max-content);gap:5px 6px!important;overflow-x:auto;padding:3px 0 5px;max-width:100%;}}
-    .st-key-vcweek_tabs [data-testid="stElementContainer"] {{width:max-content!important;}}
-    .st-key-vcweek_tabs button {{background:#17659d!important;color:#fff!important;border:1px solid #17659d!important;border-radius:8px 8px 2px 2px!important;min-height:30px!important;height:30px!important;padding:2px 10px!important;white-space:nowrap;}}
+    .st-key-vcweek_tabs {{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:flex-end;gap:7px 5px!important;overflow:visible;padding:6px 0 0;border-bottom:3px solid #17659d;max-width:100%;}}
+    .st-key-vcweek_tabs [data-testid="stElementContainer"] {{width:max-content!important;flex:0 0 auto!important;max-width:100%;}}
+    .st-key-vcweek_tabs button {{background:#17659d!important;color:#fff!important;border:1px solid #17659d!important;border-radius:12px 12px 0 0!important;min-height:31px!important;height:31px!important;padding:2px 12px!important;box-shadow:inset 0 2px 0 #ffffff35;white-space:nowrap;}}
     .st-key-vcweek_tabs button p {{font-size:.76rem!important;line-height:1.1!important;color:#fff!important;}}
-    .st-key-vcweek_tabs button[kind="primary"] {{background:#083b68!important;border-color:#083b68!important;box-shadow:inset 0 -3px #7ac5ff;}}
+    .st-key-vcweek_tabs button[kind="primary"] {{background:#083b68!important;border-color:#083b68!important;box-shadow:inset 0 3px 0 #7ac5ff;transform:translateY(-3px);}}
     .st-key-vcweek_tabs button:hover {{background:#104e7c!important;}}
     </style>""", unsafe_allow_html=True)
     with st.container(key="vcweek_tabs"):
