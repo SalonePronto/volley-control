@@ -38,7 +38,7 @@ def test_invalid_feed_rejected_pending_explicit():
     with pytest.raises(ValueError,match='categoria'):
         normalize_pgs([{**MATCH,'categoria':'U12'}],TEAMS)
     games,pending=normalize_pgs([{**MATCH,'data':''}],TEAMS)
-    assert not games and pending == ['TEST-number']
+    assert not games and [g['game_number'] for g in pending] == ['TEST-number']
     with pytest.raises(ValueError,match='formato'):
         normalize_pgs({},TEAMS)
 
@@ -81,10 +81,10 @@ def test_sync_button_filters_pgs_and_updates_shared_week(db,monkeypatch):
         app.session_state['patty_authenticated']=True
         app.session_state['patty_login_at']=datetime.now(ZoneInfo('Europe/Rome')).timestamp()
         app.run()
-        next(b for b in app.button if b.label=='↻ Scarica e aggiorna calendari').click().run()
+        next(b for b in app.button if b.label=='↻ Aggiorna tutti i calendari').click().run()
         assert not app.exception
         assert any('PGS Milano U11: 1 gare' in msg.value for msg in app.success)
         assert len(list_games(db))==2
         assert len([b for b in app.button if b.label=='Vedi scheda'])==2
-        next(b for b in app.button if b.label=='↻ Scarica e aggiorna calendari').click().run()
+        next(b for b in app.button if b.label=='↻ Aggiorna tutti i calendari').click().run()
         assert not app.exception and len(list_games(db))==2

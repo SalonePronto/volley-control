@@ -12,7 +12,8 @@ FIPAV_TEAMS = [
     {"team_name": "PVI STUDIO OTTOLINA", "team_id": "229693", "category": "U15 Femminile", "group_id": "63945"},
     {"team_name": "PVI PINUCCÈ", "team_id": "229990", "category": "U17 Femminile", "group_id": "63942"},
 ]
-PGS_TEAM = {"team_id": "6ab0ec072cf8134e0d68e749", "team_name": "PVI ARDOR 2K GIUSSANO", "category": "U11", "source": "PGS Milano", "season": SEASON}
+PGS_TEAM = {"team_id": "6ab0ec072cf8134e0d68e749", "team_name": "PVI ARDOR 2K GIUSSANO", "category": "U11", "source": "PGS Milano", "season": SEASON, "competition": "invernale_2026-2027"}
+PGS_TEAMS = [PGS_TEAM]
 RESULT_FIELDS = {"played", "home_sets", "away_sets", "sets"}
 DISPLAY_FIELDS = {
     "date": "Data (AAAA-MM-GG)", "time": "Ora (HH:MM)",
@@ -57,12 +58,13 @@ def split_venue(value):
     return raw or "Palestra non indicata", ""
 
 
-def normalize_fipav(payload, team):
+def normalize_fipav(payload, team, include_pending=False):
     """Return only actual matches for team ID. Match ID and visible ng differ."""
     data = payload.get("data", payload)
     if not isinstance(data, dict) or not isinstance(data.get("matches"), list):
         raise ValueError("Il calendario FIPAV non contiene 'data.matches' validi.")
     result = []
+    pending = []
     seen = set()
     for entry in data["matches"]:
         t1, t2 = entry.get("team1") or {}, entry.get("team2") or {}
@@ -80,30 +82,39 @@ def normalize_fipav(payload, team):
         venue, address = split_venue(entry.get("stadium"))
         pts1, pts2 = entry.get("pt_a") or [], entry.get("pt_b") or []
         sets = [{"home": int(a), "away": int(b)} for a, b in zip(pts1, pts2)]
-        result.append({
+        game = {
             "game_key": key, "source": "FIPAV", "season": SEASON,
             "group_id": clean(team["group_id"]), "official_id": match_id,
             "game_number": clean(entry.get("ng")),
             "category": team["category"], "our_team_id": clean(team["team_id"]),
             "our_team_name": team["team_name"], "is_home": home,
             "home_team": clean(t1.get("title")), "away_team": clean(t2.get("title")),
-            "date": parse_date(entry.get("date")), "time": parse_time(entry.get("time")),
+            "date": parse_date(entry.get("date")) if entry.get("date") else "",
+            "time": parse_time(entry.get("time")) if entry.get("time") else "",
             "venue": venue, "address": address,
             "played": bool(entry.get("played")),
             "home_sets": entry.get("team1-setwin"), "away_sets": entry.get("team2-setwin"),
             "sets": sets, "notes": "",
             "required_referees": 1 if home else 0,
             "required_scorers": 1 if home else 0, "hidden": False,
-        })
+        }
+        if not game["date"] or not game["time"]:
+            pending.append(game)
+        else:
+            result.append(game)
+    if include_pending:
+        return result, pending
+    if pending:
+        raise ValueError("FIPAV: gare senza data o ora; usare il recupero con segnalazione dati incompleti.")
     return result
 
 
-def download_fipav(team, session=None):
+def download_fipav(team, session=None, include_pending=False):
     url = FIPAV_CALENDAR_API.format(team["group_id"])
     requester = session or requests
     response = requester.get(url, timeout=25, headers={"Accept": "application/json", "User-Agent": "VolleyControl/0.4"})
     response.raise_for_status()
-    return normalize_fipav(response.json(), team)
+    return normalize_fipav(response.json(), team, include_pending=include_pending)
 
 
 def coverage(game, refs=(), scorers=()):

@@ -83,3 +83,24 @@ def compact_game_row(game, assigned, status, staff, on_open):
             if st.button("Vedi scheda", key="vcopen_" + short,
                          help="Apri la scheda completa", use_container_width=True):
                 on_open(game["game_key"])
+
+
+def week_tabs(weeks, selected_week):
+    """Small blue filing tabs, one or two rows; scroll sideways on narrow screens."""
+    from vc_core import week_label
+    count = len(weeks)
+    columns = count if count <= 6 else (count + 1) // 2
+    st.markdown(f"""<style>
+    .st-key-vcweek_tabs {{display:grid!important;grid-template-columns:repeat({columns},max-content);gap:5px 6px!important;overflow-x:auto;padding:3px 0 5px;max-width:100%;}}
+    .st-key-vcweek_tabs [data-testid="stElementContainer"] {{width:max-content!important;}}
+    .st-key-vcweek_tabs button {{background:#17659d!important;color:#fff!important;border:1px solid #17659d!important;border-radius:8px 8px 2px 2px!important;min-height:30px!important;height:30px!important;padding:2px 10px!important;white-space:nowrap;}}
+    .st-key-vcweek_tabs button p {{font-size:.76rem!important;line-height:1.1!important;color:#fff!important;}}
+    .st-key-vcweek_tabs button[kind="primary"] {{background:#083b68!important;border-color:#083b68!important;box-shadow:inset 0 -3px #7ac5ff;}}
+    .st-key-vcweek_tabs button:hover {{background:#104e7c!important;}}
+    </style>""", unsafe_allow_html=True)
+    with st.container(key="vcweek_tabs"):
+        for week in weeks:
+            if st.button(week_label(week), key=f"wk_{week.isoformat()}",
+                         type="primary" if selected_week == week else "secondary"):
+                st.session_state.selected_week = week.isoformat()
+                st.rerun()

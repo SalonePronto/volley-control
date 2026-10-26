@@ -9,7 +9,7 @@ import hmac
 import os
 import streamlit as st
 
-from vc_core import (DISPLAY_FIELDS, FIPAV_TEAMS, PGS_TEAM, coverage, download_fipav,
+from vc_core import (DISPLAY_FIELDS, FIPAV_TEAMS, PGS_TEAM, PGS_TEAMS, coverage, download_fipav,
                      parse_date, parse_time, week_label, week_start)
 from vc_storage import (audit_for_game, conflicts_for_game, list_games, modify_game,
                         open_engine, save_import)
@@ -19,6 +19,7 @@ from vc_view_admin import render_club_admin
 from vc_view_game import render_game_people, assignment_status, role_names
 from vc_ui import inject_calendar_css, compact_game_row
 from vc_pgs import download_pgs
+from vc_pending import init_pending, list_pending, save_pending
 from vc_people import team_staff
 
 st.set_page_config(page_title="VOLLEY CONTROL", page_icon="🏐", layout="wide")
@@ -44,6 +45,7 @@ def storage(url):
 try:
     engine = storage(DATABASE_URL)
     init_people(engine)
+    init_pending(engine)
 except Exception as exc:
     st.error("Database non disponibile. Nessun dato è stato modificato.")
     st.caption(f"Diagnostica: {type(exc).__name__}")
@@ -66,26 +68,36 @@ if not DATABASE_URL:
 
 
 def run_sync(results_only=False, include_pgs=False):
-    all_games = []
-    errors = []
+    all_games, errors = [], []
+    source_counts = {}
     for team in FIPAV_TEAMS:
         try:
-            all_games.extend(download_fipav(team))
+            fetched = download_fipav(team, include_pending=True)
+            team_games, pending = fetched if isinstance(fetched, tuple) else (fetched, [])
+            save_pending(engine, f"FIPAV:{team['group_id']}:{team['team_id']}", pending)
+            all_games.extend(team_games)
+            source_counts["FIPAV Como"] = source_counts.get("FIPAV Como", 0) + len(team_games)
         except Exception as exc:
             errors.append(f"{team['team_name']}: {type(exc).__name__} — {exc}")
-    source_counts = {"FIPAV Como": len(all_games)}
     if include_pgs:
-        try:
-            pgs_games, pending = download_pgs()
-            all_games.extend(pgs_games)
-            source_counts["PGS Milano U11"] = len(pgs_games)
-            if pending:
-                errors.append("PGS: gare senza data/ora, non collocabili nelle settimane: " + ", ".join(pending))
-        except Exception as exc:
-            errors.append(f"PGS U11 PVI ARDOR 2K GIUSSANO: {type(exc).__name__} — {exc}")
+        for team in PGS_TEAMS:
+            try:
+                pgs_games, pending = download_pgs(team=team)
+                save_pending(engine, f"PGS:{team.get('competition', '')}:{team['team_id']}", pending)
+                all_games.extend(pgs_games)
+                label = f"PGS Milano {team['category']}"
+                source_counts[label] = source_counts.get(label, 0) + len(pgs_games)
+            except Exception as exc:
+                errors.append(f"PGS {team['team_name']}: {type(exc).__name__} — {exc}")
     if not all_games:
         return None, errors
-    report = save_import(engine, all_games, only_results=results_only)
+    unique = {}
+    for game in all_games:
+        # A derby can appear in both followed teams: keep one match, with the
+        # home team's local staffing requirements rather than the away view.
+        if game['game_key'] not in unique or game['is_home']:
+            unique[game['game_key']] = game
+    report = save_import(engine, list(unique.values()), only_results=results_only)
     if not results_only:
         fixed = apply_fixed(engine)
         errors.extend(fixed["conflicts"])
@@ -133,19 +145,22 @@ if not admin:
 
 viewer = render_person_access(engine, PERSISTENT)
 
+pending_games = list_pending(engine)
+alert_dot = " 🔵" if pending_games else ""
+
 left, right = st.columns([5, 1], vertical_alignment="center")
 with left:
     st.markdown("**Calendario gare** · Tutte le squadre, ordinate per data e ora")
 with right:
     if admin:
-        if st.button("🔓 Esci da PATTY", use_container_width=True):
+        if st.button("🔓 Esci da PATTY" + alert_dot, use_container_width=True, help=f"{len(pending_games)} gare con dati primari incompleti" if pending_games else None):
             st.session_state.patty_authenticated = False
             st.rerun()
-    elif st.button("🔒 PATTY", use_container_width=True, type="primary"):
+    elif st.button("🔒 PATTY" + alert_dot, use_container_width=True, type="primary", help=f"{len(pending_games)} gare con dati primari incompleti" if pending_games else None):
         patty_login()
 
 # Visible entry point; downloading/importing stays organizer-only.
-if st.button("↻ Scarica e aggiorna calendari", use_container_width=True):
+if st.button("↻ Aggiorna tutti i calendari", use_container_width=True):
     if not admin:
         patty_login()
     else:
@@ -156,7 +171,19 @@ if st.button("↻ Scarica e aggiorna calendari", use_container_width=True):
             st.success(f"{detail}. Archivio: {report['inserted']} nuove, {report['updated']} aggiornate, {report['unchanged']} invariate.")
         for error in errors:
             st.error(error)
-st.caption("Recupera le gare di Ottolina U15, Pinuccè U17 e PGS U11 PVI ARDOR 2K GIUSSANO direttamente nel calendario. Accesso organizzatore richiesto.")
+        # The button is above the week selector but below PATTY: refresh the
+        # persistent indicator immediately, without requiring another click.
+        st.session_state.sync_report = report
+        st.session_state.sync_errors = errors
+        st.rerun()
+if "sync_report" in st.session_state:
+    previous_report = st.session_state.pop("sync_report")
+    if previous_report:
+        detail = " · ".join(f"{name}: {count} gare" for name, count in previous_report["sources"].items())
+        st.success(f"{detail}. Archivio: {previous_report['inserted']} nuove, {previous_report['updated']} aggiornate, {previous_report['unchanged']} invariate.")
+    for error in st.session_state.pop("sync_errors", []):
+        st.error(error)
+st.caption("Aggiorna calendari e risultati disponibili di tutte le squadre configurate. Le gare già presenti non vengono duplicate. Accesso organizzatore richiesto.")
 
 if "initial_errors" in st.session_state:
     for error in st.session_state.pop("initial_errors"):
@@ -164,14 +191,24 @@ if "initial_errors" in st.session_state:
 
 if admin:
     st.markdown("#### PATTY · Comandi riservati")
-    if st.button("↻ Aggiorna risultati", use_container_width=True):
-        with st.spinner("Aggiorno i risultati FIPAV senza duplicare gare…"):
+    if st.button("↻ Aggiorna tutti i risultati", use_container_width=True):
+        with st.spinner("Aggiorno risultati e parziali di tutte le squadre configurate…"):
             report, errors = run_sync(True, include_pgs=True)
-        if report:
-            st.success(f"Risultati: {report['updated']} gare aggiornate, {report['unchanged']} invariate.")
-        for error in errors:
+        st.session_state.results_report = report
+        st.session_state.results_errors = errors
+        st.rerun()
+    if "results_report" in st.session_state:
+        result_report = st.session_state.pop("results_report")
+        if result_report:
+            st.success(f"Risultati: {result_report['updated']} gare aggiornate, {result_report['unchanged']} invariate.")
+        for error in st.session_state.pop("results_errors", []):
             st.error(error)
-    st.info("PGS Milano · U11 PVI ARDOR 2K GIUSSANO: il pulsante calendari esegue il recupero Python e inserisce le gare nelle settimane condivise.")
+    if pending_games:
+        with st.expander(f"🔵 Gare con dati primari incompleti ({len(pending_games)})", expanded=False):
+            for item in pending_games:
+                missing = ", ".join(label for key, label in (("date", "data"), ("time", "ora")) if not item.get(key))
+                st.markdown(f"**{item['source']} · {item['category']} · Gara {item['game_number']}** — {item['home_team']} – {item['away_team']}")
+                st.caption(f"Da completare: {missing}. L'avviso si aggiorna al prossimo recupero dei calendari o dei risultati.")
     render_club_admin(engine, PERSISTENT)
 
 games = list_games(engine)
@@ -189,14 +226,8 @@ else:
 if selected_week is None:
     selected_week = next((w for w in weeks if w >= this_week), weeks[-1])
 
-st.markdown("#### Seleziona la settimana")
-for idx in range(0, len(weeks), 3):
-    columns = st.columns(3)
-    for col, week in zip(columns, weeks[idx:idx + 3]):
-        if col.button(week_label(week), key=f"wk_{week.isoformat()}",
-                      type="primary" if selected_week == week else "secondary", use_container_width=True):
-            st.session_state.selected_week = week.isoformat()
-            st.rerun()
+from vc_ui import week_tabs
+week_tabs(weeks, selected_week)
 
 week_games = [g for g in games if week_start(g["date"]) == selected_week]
 bookings = assignments_for_games(engine, [g["game_key"] for g in week_games])

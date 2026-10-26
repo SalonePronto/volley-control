@@ -17,29 +17,31 @@ def _rows(payload, label):
     return payload
 
 
-def normalize_pgs(matches, teams):
+def normalize_pgs(matches, teams, team=None):
+    team = team or PGS_TEAM
+    team_id = str(team['team_id'])
+    competition = team.get('competition', COMPETITION)
+    season = team.get('season', SEASON)
+    category = team['category']
     matches = _rows(matches, 'calendario')
     teams = _rows(teams, 'squadre')
     names = {clean(t.get('id') or t.get('_id')): t for t in teams}
-    ours = names.get(TEAM_ID)
-    if not ours or clean(ours.get('nomeSquadra')).upper() != PGS_TEAM['team_name'] or ours.get('categoria') != 'U11':
+    ours = names.get(team_id)
+    if not ours or clean(ours.get('nomeSquadra')).upper() != team['team_name'] or ours.get('categoria') != category:
         raise ValueError('PGS: identità U11 PVI ARDOR 2K GIUSSANO non confermata.')
     result, pending, seen = [], [], set()
     for entry in matches:
         home_id, away_id = clean(entry.get('squadraCasaID')), clean(entry.get('squadraTrasfertaID'))
-        if TEAM_ID not in (home_id, away_id):
+        if team_id not in (home_id, away_id):
             continue
-        if entry.get('codiceCampionato') and entry['codiceCampionato'] != COMPETITION:
+        if entry.get('codiceCampionato') and entry['codiceCampionato'] != competition:
             raise ValueError('PGS: calendario di un campionato diverso da quello richiesto.')
-        if entry.get('categoria') != 'U11':
+        if entry.get('categoria') != category:
             raise ValueError('PGS: categoria gara diversa da U11.')
         official_id = clean(entry.get('id') or entry.get('_id'))
         if not official_id or official_id in seen:
             raise ValueError('PGS: gara senza ID o duplicata; importazione interrotta.')
         seen.add(official_id)
-        if not entry.get('data') or not entry.get('ora'):
-            pending.append(clean(entry.get('numeroGara')) or official_id)
-            continue
         h, a = names.get(home_id), names.get(away_id)
         if not h or not a:
             raise ValueError('PGS: denominazione di una squadra non disponibile.')
@@ -53,25 +55,34 @@ def normalize_pgs(matches, teams):
         if len(pa) != len(pb):
             raise ValueError('PGS: parziali incompleti; dati precedenti conservati.')
         sets = [{'home':int(x), 'away':int(y)} for x,y in zip(pa,pb) if x is not None and y is not None and x != '' and y != '']
-        home = home_id == TEAM_ID
-        result.append(dict(
-            game_key=f'PGS:{SEASON}:{COMPETITION}:{official_id}', source='PGS Milano',
-            season=SEASON, competition=COMPETITION, group_id=clean(entry.get('girone')),
+        home = home_id == team_id
+        game = dict(
+            game_key=f'PGS:{season}:{competition}:{official_id}', source='PGS Milano',
+            season=season, competition=competition, group_id=clean(entry.get('girone')),
             official_id=official_id, game_number=clean(entry.get('numeroGara')),
-            category='U11', our_team_id=TEAM_ID, our_team_name=PGS_TEAM['team_name'],
+            category=category, our_team_id=team_id, our_team_name=team['team_name'],
             home_team=clean(h.get('nomeSquadra')), away_team=clean(a.get('nomeSquadra')),
-            is_home=home, date=parse_date(entry['data']), time=parse_time(entry['ora']),
+            is_home=home, date=parse_date(entry['data']) if entry.get('data') else '',
+            time=parse_time(entry['ora']) if entry.get('ora') else '',
             venue=clean(venue_data.get('presso')) or 'Palestra non indicata', address=address,
             played=played, home_sets=hs if played else None, away_sets=aws if played else None,
             sets=sets, notes='', required_referees=1 if home else 0,
             required_scorers=1 if home else 0, hidden=False,
-            source_url='https://volley.pgsmilano.org/calendari'))
+            source_url='https://volley.pgsmilano.org/calendari')
+        if not game['date'] or not game['time']:
+            pending.append(game)
+        else:
+            result.append(game)
     if not seen:
         raise ValueError('PGS: nessuna gara trovata per la squadra; nessun dato cancellato.')
     return result, pending
 
 
-def download_pgs(session=None):
+def download_pgs(session=None, team=None):
+    team = team or PGS_TEAM
+    team_id = str(team['team_id'])
+    competition = team.get('competition', COMPETITION)
+    category = team['category']
     requester = session or requests
     def get(path):
         response = requester.get(f'{BASE}/{path}', timeout=30, headers={'Accept':'application/json','User-Agent':'VolleyControl/0.5'})
@@ -79,10 +90,10 @@ def download_pgs(session=None):
         return response.json()
     # Metadata is validated before any calendar request. Only sports fields
     # from the public registrations are used; contacts are never saved.
-    teams = get(f'iscrizioni/campionato/{COMPETITION}')
+    teams = get(f'iscrizioni/campionato/{competition}')
     names = _rows(teams, 'squadre')
-    ours = [t for t in names if clean(t.get('id') or t.get('_id')) == TEAM_ID]
-    if len(ours) != 1 or ours[0].get('categoria') != 'U11' or clean(ours[0].get('nomeSquadra')).upper() != PGS_TEAM['team_name']:
+    ours = [t for t in names if clean(t.get('id') or t.get('_id')) == team_id]
+    if len(ours) != 1 or ours[0].get('categoria') != category or clean(ours[0].get('nomeSquadra')).upper() != team['team_name']:
         raise ValueError('PGS: squadra richiesta non confermata per questa stagione.')
-    matches = get(f'calendari/campionato/{COMPETITION}')
-    return normalize_pgs(matches, names)
+    matches = get(f'calendari/campionato/{competition}')
+    return normalize_pgs(matches, names, team=team)
