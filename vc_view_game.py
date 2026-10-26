@@ -7,7 +7,7 @@ from vc_people import ROLES, team_staff, assign, cancel, assignments_for_games
 
 def inject_sheet_css():
     st.markdown("""<style>
-    div[data-testid="stDialog"] div[role="dialog"] {max-width:850px;}
+    [data-testid="stDialog"] [role="dialog"] {max-width:1000px;width:calc(100% - 2rem);}
     .vc-info {border:1px solid #dae5ee;background:#fff;border-radius:12px;
       padding:9px 11px;margin-bottom:6px;overflow-wrap:anywhere;}
     .vc-info-title {font-size:.73rem;text-transform:uppercase;letter-spacing:.03em;

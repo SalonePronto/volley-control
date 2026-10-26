@@ -206,7 +206,7 @@ def show_game(key):
     def info_card(title, main, detail=""):
         st.markdown(
             '<div style="background:#fff;border:1px solid #dce6f0;border-radius:12px;'
-            'padding:12px 14px;margin:5px 0 10px;overflow-wrap:anywhere">'
+            'padding:9px 11px;margin:4px 0 6px;overflow-wrap:anywhere">'
             '<div style="font-size:.74rem;font-weight:750;color:#5a748a;text-transform:uppercase">'
             + escape(str(title)) + '</div><div style="font-weight:750;color:#193b5c;font-size:1rem">'
             + escape(str(main)) + '</div><div style="color:#5c7084;font-size:.84rem">'

@@ -14,6 +14,12 @@ def inject_calendar_css():
     [class*="st-key-vcrow_"] [data-testid="stColumn"] {min-width:0;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {gap:.45rem;}
     [class*="st-key-vcrow_"] [data-testid="stVerticalBlock"] {gap:0;}
+    [class*="st-key-vcrow_"] [data-testid="stElementContainer"]:has(.vc-two-line),
+    [class*="st-key-vcrow_"] [data-testid="stMarkdown"],
+    [class*="st-key-vcrow_"] [data-testid="stMarkdown"] > div {height:auto!important;min-height:46px;}
+    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {min-height:50px;flex-wrap:nowrap!important;}
+    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
+    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 112px!important;width:112px!important;min-width:112px!important;}
     .vc-two-line {width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;}
     .vc-lines {width:max-content;min-width:100%;}
     .vc-line-1,.vc-line-2 {display:grid;align-items:center;gap:14px;height:23px;width:100%;font-size:.8rem;line-height:23px;color:#4c647b;}
@@ -66,7 +72,7 @@ def compact_game_row(game, assigned, status, staff, on_open):
     with st.container(border=False, key="vcrow_" + short):
         left, right = st.columns([9, 1.15], vertical_alignment="center", gap="small")
         with left:
-            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.1" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
+            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.2" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
                         '</div><div class="vc-line-2">' + bottom + '</div></div></div>',
                         unsafe_allow_html=True)
         with right:
