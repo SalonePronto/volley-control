@@ -38,6 +38,9 @@ import vc_pending as _pending
 if getattr(_pending, "PENDING_RELEASE", "") != "2026-10-26.4":
     importlib.reload(_pending)
 from vc_pending import init_pending, list_pending, save_pending
+import vc_view_pending as _pending_editor
+if getattr(_pending_editor, "EDITOR_RELEASE", "") != "2026-10-26.5":
+    importlib.reload(_pending_editor)
 from vc_view_pending import render_pending_editor
 from vc_people import team_staff
 

@@ -5,6 +5,12 @@ from vc_core import week_start, week_label
 from vc_pending import complete_pending
 from vc_people import apply_fixed
 
+EDITOR_RELEASE = "2026-10-26.5"
+
+
+def keep_editor_open():
+    st.session_state.pending_editor_open = True
+
 
 def render_pending_editor(engine, pending_games, persistent=False):
     message = st.session_state.pop('pending_saved', None)
@@ -14,7 +20,7 @@ def render_pending_editor(engine, pending_games, persistent=False):
             st.warning(warning)
     if not pending_games:
         return
-    with st.expander(f"🔵 Gare con dati primari incompleti ({len(pending_games)})", expanded=False):
+    with st.expander(f"🔵 Gare con dati primari incompleti ({len(pending_games)})", expanded=st.session_state.get('pending_editor_open', False)):
         st.caption("Inserisci data e ora confermate: la gara comparirà subito nella settimana corretta. Le correzioni PATTY restano valide dopo gli aggiornamenti delle fonti.")
         if not persistent:
             st.caption("Attenzione: il database attuale è di anteprima. Anche queste correzioni possono andare perse al riavvio del server.")
@@ -30,7 +36,7 @@ def render_pending_editor(engine, pending_games, persistent=False):
                 time_value = time_col.text_input("Ora (HH:MM)", value=item.get('time') or '', key='pending_time_' + short,
                                                 placeholder="Ora confermata della gara")
                 reason = st.text_input("Motivo / riferimento (facoltativo)", key='pending_reason_' + short)
-                submitted = st.form_submit_button("Salva e inserisci nel calendario", type="primary")
+                submitted = st.form_submit_button("Salva e inserisci nel calendario", type="primary", on_click=keep_editor_open)
             if submitted:
                 try:
                     game = complete_pending(engine, key, date_value, time_value, reason)
