@@ -1,58 +1,108 @@
-"""Displays personnel and lets approved people book available home games."""
+"""Scheda partita: presentazione compatta, nominativi e prenotazioni esistenti."""
+from html import escape
 import streamlit as st
 from vc_core import coverage
-from vc_people import ROLES, team_staff, people, assign, cancel, assignments_for_games
+from vc_people import ROLES, team_staff, assign, cancel, assignments_for_games
 
-def assignment_status(game,assigned):
-    return coverage(game,[a for a in assigned if a["role"]=="referee"],[a for a in assigned if a["role"]=="scorer"])
 
-def role_names(assigned,role):
-    return ", ".join(f"{a['first_name']} {a['last_name']}" for a in assigned if a["role"]==role)
+def inject_sheet_css():
+    st.markdown("""<style>
+    div[data-testid="stDialog"] div[role="dialog"] {max-width:950px;}
+    .vc-info {border:1px solid #dae5ee;background:#fff;border-radius:12px;
+      padding:12px 14px;margin-bottom:9px;overflow-wrap:anywhere;min-height:92px;}
+    .vc-info-title {font-size:.73rem;text-transform:uppercase;letter-spacing:.03em;
+      font-weight:800;color:#557188;margin-bottom:6px;}
+    .vc-info-main {font-size:.96rem;font-weight:750;color:#193b5c;line-height:1.35;}
+    .vc-info-detail {font-size:.81rem;color:#596e80;line-height:1.45;margin-top:4px;}
+    .vc-section {font-size:.97rem;font-weight:800;color:#193b5c;margin:9px 0 7px;}
+    </style>""", unsafe_allow_html=True)
 
-def render_game_people(engine,game,organizer=False,viewer=None,persistent=False):
-    key=game["game_key"]
-    assigned=assignments_for_games(engine,[key]).get(key,[])
-    staff=team_staff(engine,game.get("our_team_id") or "")
-    st.markdown("#### Staff della squadra")
-    col1,col2=st.columns(2)
-    with col1:
-        st.metric("Primo allenatore",staff["coach1"] or "Da inserire")
-    with col2:
-        st.metric("Secondo allenatore",staff["coach2"] or "—")
-    st.caption("Dirigenti: "+(", ".join(staff["managers"].splitlines()) or "Da inserire"))
-    st.markdown("#### Incarichi e prenotazioni")
-    for role,label in ROLES.items():
-        name=role_names(assigned,role)
-        st.write(f"**{label}:** {name or ('Da assegnare' if game['is_home'] else 'Non richiesto')}")
+
+def assignment_status(game, assigned):
+    return coverage(game, [a for a in assigned if a["role"] == "referee"],
+                    [a for a in assigned if a["role"] == "scorer"])
+
+
+def role_names(assigned, role):
+    return ", ".join(f"{a['first_name']} {a['last_name']}"
+                     for a in assigned if a["role"] == role)
+
+
+def info_card(title, main, detail=""):
+    st.markdown('<div class="vc-info"><div class="vc-info-title">'
+                + escape(str(title)) + '</div><div class="vc-info-main">'
+                + escape(str(main)) + '</div><div class="vc-info-detail">'
+                + escape(str(detail)) + '</div></div>', unsafe_allow_html=True)
+
+
+def render_game_people(engine, game, organizer=False, viewer=None, persistent=False):
+    """Show only names for occupied roles, never a PATTY assignment option."""
+    inject_sheet_css()
+    key = game["game_key"]
+    assigned = assignments_for_games(engine, [key]).get(key, [])
+    staff = team_staff(engine, game.get("our_team_id") or "")
+    status = assignment_status(game, assigned)
+    coaches = staff["coach1"] or "Da inserire"
+    managers = ", ".join(staff["managers"].splitlines()) or "Da inserire"
+    referee = role_names(assigned, "referee") or ("Da assegnare" if game["is_home"] else "Non richiesto")
+    scorer = role_names(assigned, "scorer") or ("Da assegnare" if game["is_home"] else "Non richiesto")
+
+    a, b = st.columns(2, gap="small")
+    with a:
+        info_card("Staff squadra", coaches,
+                  f"Secondo allenatore: {staff['coach2'] or '—'} · Dirigenti: {managers}")
+    with b:
+        info_card("Copertura", status, f"Arbitro: {referee} · Refertista: {scorer}")
+
     if not game["is_home"]:
-        st.info("Trasferta: nessun arbitro o refertista interno richiesto.")
+        st.caption("Trasferta: la società non richiede arbitro e refertista interni.")
         return
-    if not persistent:
-        st.warning("Prenotazioni non disponibili: serve attivare l'archivio permanente condiviso.")
-        return
-    if not organizer and not viewer:
-        st.info("Per prenotarti, accedi come arbitro o refertista dall'area personale sopra il calendario. Dopo l'approvazione di PATTY potrai prenotare qui.")
-        return
-    eligible=people(engine,approved_only=True) if organizer else [viewer]
-    for role,label in ROLES.items():
-        total=int(game.get("required_referees" if role=="referee" else "required_scorers",0))
-        options={p["id"]:f"{p['first_name']} {p['last_name']}" for p in eligible if p["wants_"+role]}
-        for slot in range(1,total+1):
-            booked=next((a for a in assigned if a["role"]==role and a["slot"]==slot),None)
+
+    st.markdown('<div class="vc-section">Prenotazioni · Gare in casa</div>',
+                unsafe_allow_html=True)
+    for role, label in ROLES.items():
+        total = int(game.get("required_referees" if role == "referee" else "required_scorers", 0))
+        for slot in range(1, total + 1):
+            booked = next((a for a in assigned if a["role"] == role and a["slot"] == slot), None)
+            title = label if total == 1 else f"{label} · posto {slot}"
             if booked:
-                if organizer or (viewer and viewer["id"]==booked["person_id"] and booked["source"]!="fixed"):
-                    if st.button(f"Rimuovi {label}: {booked['first_name']} {booked['last_name']}",key=f"cancel_{key}_{role}_{slot}"):
+                name = escape(f"{booked['first_name']} {booked['last_name']}")
+                st.markdown(f"**{title}:** {name}")
+                if persistent and viewer and viewer["id"] == booked["person_id"] and booked["source"] != "fixed":
+                    if st.button("Annulla la mia prenotazione", key=f"cancel_{key}_{role}_{slot}"):
                         try:
-                            cancel(engine,key,role,slot,actor="PATTY" if organizer else viewer["id"])
+                            cancel(engine, key, role, slot, actor=viewer["id"])
                             st.rerun()
-                        except ValueError as exc: st.error(str(exc))
-                continue
-            if not options:
-                st.caption(f"{label}: nessuna persona abilitata disponibile per prenotarsi.")
-                continue
-            chosen=st.selectbox(label,list(options),format_func=lambda p:options[p],key=f"pick_{key}_{role}_{slot}") if organizer else viewer["id"]
-            if st.button(f"Prenota {label}",key=f"book_{key}_{role}_{slot}"):
-                try:
-                    assign(engine,key,role,chosen,actor="PATTY" if organizer else viewer["id"],source="patty" if organizer else "self",slot=slot)
-                    st.rerun()
-                except ValueError as exc: st.error(str(exc))
+                        except ValueError as exc:
+                            st.error(str(exc))
+            else:
+                left, right = st.columns([4, 1.4], vertical_alignment="center")
+                with left:
+                    st.markdown(f"**{title}:** Posto libero")
+                with right:
+                    if persistent and viewer and viewer.get("wants_" + role):
+                        if st.button("Prenotami", key=f"book_{key}_{role}_{slot}",
+                                     use_container_width=True):
+                            try:
+                                assign(engine, key, role, viewer["id"], actor=viewer["id"],
+                                       source="self", slot=slot)
+                                st.rerun()
+                            except ValueError as exc:
+                                st.error(str(exc))
+    if not persistent:
+        st.caption("Prenotazioni disattivate finché non sarà attivo il database condiviso.")
+    elif not viewer and not organizer:
+        st.caption("Per prenotarti, accedi nell'area personale arbitri/refertisti sopra il calendario.")
+
+    if organizer and persistent and assigned:
+        with st.expander("PATTY · Rimuovi incarico"):
+            for person in assigned:
+                role, slot = person["role"], person["slot"]
+                name = f"{person['first_name']} {person['last_name']}"
+                if st.button(f"Rimuovi {ROLES[role]}: {name}",
+                             key=f"patty_cancel_{key}_{role}_{slot}"):
+                    try:
+                        cancel(engine, key, role, slot, actor="PATTY")
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
