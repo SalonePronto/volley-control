@@ -39,8 +39,8 @@ def inject_calendar_css():
     .vc-two-line .vc-away {color:#246699;}
     .vc-two-line .vc-ready {color:#16704b;}
     .vc-right-status {display:flex;justify-content:center;align-items:center;text-align:center;
-        box-sizing:border-box;width:100%;padding:3px 6px;min-height:34px;margin:0;
-        border-radius:8px;font-size:.71rem;font-weight:850;line-height:1.2;
+        box-sizing:border-box;width:100%;padding:2px 6px;min-height:34px;height:34px;margin:0;
+        border-radius:8px;font-size:.71rem;font-weight:850;line-height:1.1;
         overflow-wrap:anywhere;white-space:normal;position:static!important;}
     .vc-right-status.missing {background:#ffe04b;color:#292000;border:2px solid #c99a00;}
     .vc-right-status.ready {background:#e1f4e8;color:#17633f;border:1px solid #c6e6d2;}
@@ -53,7 +53,7 @@ def inject_calendar_css():
     </style>""",unsafe_allow_html=True)
 
 
-UI_RELEASE = "2026-10-26.10"
+UI_RELEASE = "2026-10-26.11"
 
 
 WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
@@ -102,7 +102,7 @@ def compact_game_row(game, assigned, status, staff, on_open):
     with st.container(border=False, key="vcrow_" + short):
         left, right = st.columns([9, 1.2], vertical_alignment="center", gap="small")
         with left:
-            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.10" tabindex="0" aria-label="Dati gara su tre righe; scorri i campi lunghi per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
+            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.11" tabindex="0" aria-label="Dati gara su tre righe; scorri i campi lunghi per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
                         '</div><div class="' + row_type + '">' + bottom +
                         '</div><div class="vc-line-3">' + staff_line + '</div></div></div>',
                         unsafe_allow_html=True)
