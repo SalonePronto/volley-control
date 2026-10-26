@@ -12,7 +12,7 @@ FIPAV_TEAMS = [
     {"team_name": "PVI STUDIO OTTOLINA", "team_id": "229693", "category": "U15 Femminile", "group_id": "63945"},
     {"team_name": "PVI PINUCCÈ", "team_id": "229990", "category": "U17 Femminile", "group_id": "63942"},
 ]
-PGS_TEAM = {"team_name": "PVI ARDOR 2K GIUSSANO", "category": "U11", "source": "PGS Milano", "season": SEASON}
+PGS_TEAM = {"team_id": "PGS:U11:PVI-ARDOR-2K-GIUSSANO", "team_name": "PVI ARDOR 2K GIUSSANO", "category": "U11", "source": "PGS Milano", "season": SEASON}
 RESULT_FIELDS = {"played", "home_sets", "away_sets", "sets"}
 DISPLAY_FIELDS = {
     "date": "Data (AAAA-MM-GG)", "time": "Ora (HH:MM)",
@@ -21,6 +21,7 @@ DISPLAY_FIELDS = {
     "played": "Partita disputata (true/false)", "home_sets": "Set vinti casa",
     "away_sets": "Set vinti ospite", "notes": "Note organizzatore",
     "required_referees": "Numero arbitri richiesti", "required_scorers": "Numero refertisti richiesti",
+    "hidden": "Nascondi gara (true/false)",
 }
 
 
@@ -92,7 +93,7 @@ def normalize_fipav(payload, team):
             "home_sets": entry.get("team1-setwin"), "away_sets": entry.get("team2-setwin"),
             "sets": sets, "notes": "",
             "required_referees": 1 if home else 0,
-            "required_scorers": 1 if home else 0,
+            "required_scorers": 1 if home else 0, "hidden": False,
         })
     return result
 
