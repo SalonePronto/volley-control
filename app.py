@@ -21,7 +21,7 @@ import vc_pgs as _pgs
 if "team" not in inspect.signature(_pgs.normalize_pgs).parameters:
     importlib.reload(_pgs)
 import vc_ui as _ui
-if getattr(_ui, "UI_RELEASE", "") != "2026-10-26.6":
+if getattr(_ui, "UI_RELEASE", "") != "2026-10-26.7":
     importlib.reload(_ui)
 
 from vc_core import (DISPLAY_FIELDS, FIPAV_TEAMS, PGS_TEAM, PGS_TEAMS, coverage, download_fipav,
@@ -233,6 +233,13 @@ selected_week_str = st.session_state.get("selected_week", "")
 chosen_week = next((w for w in weeks if w.isoformat() == selected_week_str), None)
 opening_view = chosen_week is None  # Default: urgent home games in the current week.
 selected_week = chosen_week if chosen_week is not None else this_week
+
+# HOME restores the initial view: only current-week games with vacant roles.
+if st.button("⌂ HOME", key="vc_go_home",
+             help="Torna alla schermata iniziale con gli incarichi da coprire",
+             disabled=opening_view):
+    st.session_state.pop("selected_week", None)
+    st.rerun()
 
 from vc_ui import week_tabs
 # The tab becomes selected only after a user explicitly asks for the full week.
