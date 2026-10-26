@@ -85,6 +85,7 @@ def test_sync_button_filters_pgs_and_updates_shared_week(db,monkeypatch):
         assert not app.exception
         assert any('PGS Milano U11: 1 gare' in msg.value for msg in app.success)
         assert len(list_games(db))==2
+        app.button(key='wk_' + week_start(GAME['date']).isoformat()).click().run()
         assert len([b for b in app.button if b.label=='Vedi scheda'])==2
         next(b for b in app.button if b.label=='↻ Aggiorna tutti i calendari').click().run()
         assert not app.exception and len(list_games(db))==2

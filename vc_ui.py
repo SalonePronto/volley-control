@@ -17,15 +17,21 @@ def inject_calendar_css():
     [class*="st-key-vcrow_"] [data-testid="stElementContainer"]:has(.vc-two-line) {height:auto!important;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] {min-height:73px;flex-wrap:nowrap!important;}
     [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
-    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 190px!important;width:190px!important;min-width:190px!important;}
+    [class*="st-key-vcrow_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 124px!important;width:124px!important;min-width:124px!important;}
     .vc-two-line {width:100%;min-width:0;overflow-x:auto;overflow-y:hidden;}
-    .vc-lines {width:max-content;min-width:100%;}
-    .vc-line-1,.vc-line-2,.vc-line-3 {display:grid;align-items:center;gap:14px;height:23px;width:100%;font-size:.8rem;line-height:23px;color:#4c647b;}
-    .vc-line-1 {grid-template-columns:max-content max-content minmax(max-content,1fr);}
-    .vc-line-2 {grid-template-columns:minmax(max-content,1fr) max-content max-content;}
-    .vc-line-2.vc-line-away {grid-template-columns:minmax(max-content,1fr);}
-    .vc-line-3 {grid-template-columns:minmax(max-content,1fr) minmax(max-content,1fr);}
-    .vc-two-line span {display:block;white-space:nowrap;}
+    .vc-lines {width:100%;min-width:720px;}
+    .vc-line-1,.vc-line-2,.vc-line-3 {display:grid;align-items:center;gap:0;height:23px;width:100%;font-size:.8rem;line-height:23px;color:#4c647b;}
+    .vc-line-1,.vc-line-2,.vc-line-3 {grid-template-columns:repeat(12,minmax(0,1fr));}
+    .vc-line-1 > span:nth-child(1) {grid-column:span 2;}
+    .vc-line-1 > span:nth-child(2) {grid-column:span 3;}
+    .vc-line-1 > span:nth-child(3) {grid-column:span 7;}
+    .vc-line-2 > span:nth-child(1) {grid-column:span 8;}
+    .vc-line-2 > span:nth-child(n+2) {grid-column:span 2;}
+    .vc-line-2.vc-line-away > span {grid-column:1/-1;}
+    .vc-line-3 > span:nth-child(1) {grid-column:span 5;}
+    .vc-line-3 > span:nth-child(2) {grid-column:span 7;}
+    .vc-two-line span {display:block;min-width:0;box-sizing:border-box;white-space:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding-right:9px;text-align:left;}
+    .vc-two-line span::-webkit-scrollbar {display:none;}
     .vc-two-line .vc-strong {font-weight:750;color:#193b5c;}
     .vc-two-line .vc-role-open {color:#147347;font-weight:850;}
     .vc-two-line .vc-role-booked {color:#bc2635;font-weight:850;}
@@ -42,12 +48,12 @@ def inject_calendar_css():
     [class*="st-key-vcrow_"] [class*="st-key-vcopen_"] button {min-width:92px!important;min-height:32px!important;height:32px!important;width:100%!important;padding:0 4px!important;border-radius:8px!important;font-size:.77rem!important;font-weight:700!important;white-space:nowrap!important;position:static!important;}
     [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] {flex-wrap:nowrap!important;}
     [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {flex:1 1 0!important;width:0!important;min-width:0!important;}
-    [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 190px!important;width:190px!important;min-width:190px!important;}
-    .vc-two-line span + span {border-left:1px solid #e5edf4;padding-left:14px;}
+    [class*="st-key-vcrow_"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {flex:0 0 124px!important;width:124px!important;min-width:124px!important;}
+    .vc-two-line span + span {border-left:1px solid #e5edf4;padding-left:9px;}
     </style>""",unsafe_allow_html=True)
 
 
-UI_RELEASE = "2026-10-26.8"
+UI_RELEASE = "2026-10-26.9"
 
 
 WEEKDAYS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
@@ -77,7 +83,7 @@ def compact_game_row(game, assigned, status, staff, on_open):
 
     def cell(value, style=""):
         safe = _e(value)
-        return f'<span class="{style}" title="{safe}">{safe}</span>'
+        return f'<span class="{style}" title="{safe}" tabindex="0">{safe}</span>'
 
     top = cell(date_info, "vc-strong") + cell(event_info) + cell(teams, "vc-strong")
     if game["is_home"]:
@@ -94,9 +100,9 @@ def compact_game_row(game, assigned, status, staff, on_open):
         row_type = "vc-line-2 vc-line-away"
     staff_line = cell(coach_info) + cell(manager_info)
     with st.container(border=False, key="vcrow_" + short):
-        left, right = st.columns([9, 1.8], vertical_alignment="center", gap="small")
+        left, right = st.columns([9, 1.2], vertical_alignment="center", gap="small")
         with left:
-            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.8" tabindex="0" aria-label="Dati gara, scorri orizzontalmente per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
+            st.markdown('<div class="vc-two-line" data-ui-release="2026-10-26.9" tabindex="0" aria-label="Dati gara su tre righe; scorri i campi lunghi per leggere tutti i dettagli"><div class="vc-lines"><div class="vc-line-1">' + top +
                         '</div><div class="' + row_type + '">' + bottom +
                         '</div><div class="vc-line-3">' + staff_line + '</div></div></div>',
                         unsafe_allow_html=True)

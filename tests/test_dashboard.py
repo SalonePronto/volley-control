@@ -30,6 +30,9 @@ def test_real_week_and_home_dialog(db):
     with patch('vc_storage.open_engine', return_value=db):
         app = AppTest.from_file(str(Path(__file__).parents[1] / 'app.py')).run()
         assert not app.exception
+        # HOME now filters the current week; open the actual fixture week.
+        from vc_core import week_start
+        app.button(key='wk_' + week_start(GAME['date']).isoformat()).click().run()
         assert any(b.label == 'Vedi scheda' for b in app.button)
         app.button(key=next(b.key for b in app.button if b.label == 'Vedi scheda')).click().run()
         assert not app.exception
