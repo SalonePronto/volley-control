@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "volley-control-dev",
+  "main": "dist/worker.mjs",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": { "ENVIRONMENT": "staging", "REGISTRATION_ENABLED": "false" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "volley-control-dev-db",
+      "database_id": "REQUIRES_VERIFIED_FREE_ACCOUNT",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "observability": { "enabled": false },
+}

@@ -1,0 +1,2 @@
+CREATE TABLE sync_jobs(id TEXT PRIMARY KEY,scope TEXT NOT NULL,results_only INTEGER NOT NULL,
+ payload_json TEXT NOT NULL,offset INTEGER NOT NULL DEFAULT 0,report_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL);

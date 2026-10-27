@@ -1,0 +1,20 @@
+{
+  "name": "volley-control-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test cloudflare-tests/*.test.mjs",
+    "check": "npm run build && node --check worker/index.mjs && node --check web/app.js && npm test",
+    "format:check": "prettier --check worker web scripts cloudflare-tests package.json wrangler.jsonc"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "miniflare": "5.20261023.0-beta",
+    "prettier": "3.6.2",
+    "wrangler": "^4.153.0"
+  }
+}

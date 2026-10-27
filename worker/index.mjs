@@ -1,0 +1,1166 @@
+import { ASSETS } from './assets.mjs';
+import {
+  clean,
+  fail,
+  dateISO,
+  hour,
+  today,
+  interval,
+  scopeFor,
+  normalizeFipav,
+  normalizePgs,
+  mergeGame,
+  validatePatch,
+  validateTeam,
+  EDITABLE,
+} from './domain.mjs';
+export const RELEASE = 'cf-staging-2026-10-27.1';
+const enc = new TextEncoder();
+const hex = (buffer) =>
+  Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
+const fromHex = (s) => Uint8Array.from(s.match(/../g) || [], (x) => parseInt(x, 16));
+export const random = () => hex(crypto.getRandomValues(new Uint8Array(32)));
+export const sha = async (v) => hex(await crypto.subtle.digest('SHA-256', enc.encode(v)));
+export function equal(a, b) {
+  const x = enc.encode(a || ''),
+    y = enc.encode(b || '');
+  let n = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) n |= (x[i] || 0) ^ (y[i] || 0);
+  return n === 0;
+}
+async function peppered(password, pepper) {
+  if (!pepper) fail('Accessi non ancora configurati.', 503);
+  const k = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(pepper),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  return crypto.subtle.sign('HMAC', k, enc.encode(password));
+}
+// WebCrypto Workers supports at most 100000 PBKDF2 iterations. A separate secret
+// pepper protects a stolen D1 export; never store it beside password records.
+export async function passwordHash(password, pepper, salt = random().slice(0, 32)) {
+  if (typeof password !== 'string' || password.length < 12 || password.length > 256)
+    fail('La password deve avere da 12 a 256 caratteri.');
+  const k = await crypto.subtle.importKey(
+    'raw',
+    await peppered(password, pepper),
+    'PBKDF2',
+    false,
+    ['deriveBits'],
+  );
+  const digest = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-512', salt: fromHex(salt), iterations: 100000 },
+    k,
+    512,
+  );
+  return `pbkdf2_sha512_peppered:100000:${salt}:${hex(digest)}`;
+}
+export async function verifyPassword(password, record, pepper) {
+  try {
+    const [alg, n, salt] = record.split(':');
+    if (alg !== 'pbkdf2_sha512_peppered' || n !== '100000') return false;
+    return equal(await passwordHash(password, pepper, salt), record);
+  } catch {
+    return false;
+  }
+}
+export const statement = (db, sql, ...params) => db.prepare(sql).bind(...params);
+async function all(db, sql, ...p) {
+  return (await statement(db, sql, ...p).all()).results;
+}
+async function one(db, sql, ...p) {
+  return statement(db, sql, ...p).first();
+}
+const at = () => new Date().toISOString();
+const json = (v, status = 200, headers = {}) =>
+  new Response(JSON.stringify(v), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      ...headers,
+    },
+  });
+export const audit = (db, actor, action, key, details) =>
+  statement(
+    db,
+    'INSERT INTO audit(actor,action,game_key,details,changed_at) VALUES(?,?,?,?,?)',
+    actor,
+    action,
+    key,
+    JSON.stringify(details),
+    at(),
+  );
+async function body(req) {
+  if (!req.headers.get('content-type')?.startsWith('application/json'))
+    fail('Formato JSON richiesto.', 415);
+  if (Number(req.headers.get('content-length') || 0) > 1000000)
+    fail('Richiesta troppo grande.', 413);
+  const raw = await req.text();
+  if (raw.length > 1000000) fail('Richiesta troppo grande.', 413);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    fail('JSON non valido.');
+  }
+}
+export async function authenticate(req, env) {
+  const token = (req.headers.get('cookie') || '')
+    .split(';')
+    .map((s) => s.trim())
+    .find((s) => s.startsWith('__Host-vc='))
+    ?.slice(10);
+  if (!token) return null;
+  const s = await one(
+    env.DB,
+    'SELECT s.*, p.approved,p.wants_referee,p.wants_scorer,p.first_name,p.last_name FROM sessions s LEFT JOIN people p ON p.id=s.person_id WHERE token_hash=? AND expires_at>?',
+    await sha(token),
+    Date.now(),
+  );
+  if (!s || (!s.admin && !s.approved)) return null;
+  return s;
+}
+function admin(s) {
+  if (!s?.admin) fail('Accesso PATTY richiesto.', 403);
+}
+function csrf(req, s) {
+  if (!s || !equal(req.headers.get('x-csrf-token'), s.csrf))
+    fail('Sessione scaduta. Accedi nuovamente.', 403);
+}
+async function throttle(env, req, label, max = 8) {
+  const ip = req.headers.get('cf-connecting-ip') || 'local';
+  const key = await sha(label + ':' + ip + ':' + Math.floor(Date.now() / 900000));
+  const r = await statement(
+    env.DB,
+    'INSERT INTO attempts(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count',
+    key,
+    Date.now() + 900000,
+  ).first();
+  if (r.count > max) fail('Troppi tentativi. Riprova tra 15 minuti.', 429);
+}
+async function sessionReply(env, person_id, isAdmin) {
+  const token = random(),
+    csrfToken = random();
+  const expires = Date.now() + (isAdmin ? 1800000 : 8 * 3600000);
+  await env.DB.batch([
+    statement(env.DB, 'DELETE FROM sessions WHERE expires_at<?', Date.now()),
+    statement(env.DB, 'DELETE FROM attempts WHERE expires_at<?', Date.now()),
+    statement(
+      env.DB,
+      'INSERT INTO sessions(token_hash,person_id,admin,csrf,expires_at) VALUES(?,?,?,?,?)',
+      await sha(token),
+      person_id,
+      isAdmin ? 1 : 0,
+      csrfToken,
+      expires,
+    ),
+  ]);
+  return json({ ok: true, csrf: csrfToken, admin: isAdmin }, 200, {
+    'Set-Cookie': `__Host-vc=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${isAdmin ? 1800 : 28800}`,
+  });
+}
+export function gameValues(g, scope, official, overrides = {}) {
+  const [start, end] = interval(g);
+  return [
+    g.game_key,
+    g.team_id,
+    g.source,
+    g.season,
+    scope,
+    JSON.stringify(official),
+    JSON.stringify(overrides),
+    JSON.stringify(g),
+    g.date || '',
+    g.time || '',
+    g.is_home ? 1 : 0,
+    g.hidden ? 1 : 0,
+    start,
+    end,
+    g.required_referees || 0,
+    g.required_scorers || 0,
+    at(),
+    at(),
+  ];
+}
+const UPSERT_GAME = `INSERT INTO games(game_key,team_id,source,season,scope,official_json,overrides_json,effective_json,date,time,is_home,hidden,start_ts,end_ts,required_referees,required_scorers,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(game_key) DO UPDATE SET team_id=excluded.team_id,official_json=excluded.official_json,overrides_json=excluded.overrides_json,effective_json=excluded.effective_json,date=excluded.date,time=excluded.time,is_home=excluded.is_home,hidden=excluded.hidden,start_ts=excluded.start_ts,end_ts=excluded.end_ts,required_referees=excluded.required_referees,required_scorers=excluded.required_scorers,source_missing=0,updated_at=excluded.updated_at,version=games.version+1 WHERE games.version=?`;
+export async function saveGame(
+  db,
+  g,
+  official,
+  overrides,
+  actor = 'sync',
+  reason = '',
+  expectedVersion = null,
+) {
+  const scope = scopeFor({
+    source: g.source,
+    season: g.season,
+    group_id: g.group_id,
+    competition: official.competition || g.competition,
+  });
+  const prior = await one(db, 'SELECT version FROM games WHERE game_key=?', g.game_key);
+  const version = expectedVersion ?? prior?.version ?? -1;
+  let results;
+  try {
+    results = await db.batch([
+      statement(
+        db,
+        'INSERT INTO write_guards(game_key,expected_version) VALUES(?,?)',
+        g.game_key,
+        version,
+      ),
+      statement(db, UPSERT_GAME, ...gameValues(g, scope, official, overrides), version),
+      audit(db, actor, actor === 'sync' ? 'source_updated' : 'game_modified', g.game_key, {
+        overrides,
+        reason,
+      }),
+      statement(db, 'DELETE FROM write_guards WHERE game_key=?', g.game_key),
+    ]);
+  } catch (e) {
+    if (/STALE_WRITE/.test(String(e))) fail(dbMessage(e), 409);
+    throw e;
+  }
+  if (!results[1].meta.changes)
+    fail('Gara modificata da un altro aggiornamento. Ricarica e riprova.', 409);
+}
+export async function saveImport(db, incoming, scope, resultsOnly = false, markMissing = true) {
+  const old = await all(db, 'SELECT * FROM games WHERE scope=?', scope);
+  const map = new Map(old.map((x) => [x.game_key, x]));
+  const counts = { inserted: 0, updated: 0, unchanged: 0, conflicts: 0, missing: 0, errors: [] };
+  // One atomic D1 batch per game, in sequential chunks at the HTTP layer. Never
+  // depend on a read-before-write to protect booking integrity (SQL triggers do).
+  for (const g of incoming) {
+    const current = map.get(g.game_key);
+    if (resultsOnly && !current) continue;
+    const m = mergeGame(current, g, resultsOnly);
+    if (
+      current &&
+      current.official_json === JSON.stringify(m.official) &&
+      !current.source_missing
+    ) {
+      counts.unchanged++;
+      continue;
+    }
+    try {
+      const queries = [
+        statement(
+          db,
+          'INSERT INTO write_guards(game_key,expected_version) VALUES(?,?)',
+          g.game_key,
+          current?.version ?? -1,
+        ),
+        statement(
+          db,
+          UPSERT_GAME,
+          ...gameValues(m.effective, scope, m.official, m.overrides),
+          current?.version ?? -1,
+        ),
+        statement(db, 'DELETE FROM import_conflicts WHERE game_key=?', g.game_key),
+        audit(db, 'sync', 'source_updated', g.game_key, { resultsOnly }),
+      ];
+      if (m.conflicts.length)
+        queries.push(
+          statement(
+            db,
+            `INSERT INTO import_conflicts(game_key,field,incoming,detected_at) SELECT ?,json_extract(value,'$.field'),json_extract(value,'$.incoming'),? FROM json_each(?)`,
+            g.game_key,
+            at(),
+            JSON.stringify(m.conflicts),
+          ),
+        );
+      queries.push(statement(db, 'DELETE FROM write_guards WHERE game_key=?', g.game_key));
+      const saved = await db.batch(queries);
+      if (!saved[1].meta.changes) {
+        counts.errors.push({
+          game_key: g.game_key,
+          error: 'Modifica contemporanea: aggiornamento rinviato, correzioni conservate.',
+        });
+        continue;
+      }
+      counts[current ? 'updated' : 'inserted']++;
+      counts.conflicts += m.conflicts.length;
+    } catch (e) {
+      counts.errors.push({ game_key: g.game_key, error: dbMessage(e) });
+      await statement(
+        db,
+        'INSERT INTO import_conflicts(game_key,field,incoming,detected_at) VALUES(?,?,?,?) ON CONFLICT(game_key,field) DO UPDATE SET incoming=excluded.incoming,detected_at=excluded.detected_at',
+        g.game_key,
+        'schedule_booking_conflict',
+        JSON.stringify(g),
+        at(),
+      ).run();
+    }
+  }
+  if (markMissing && !resultsOnly && incoming.length) {
+    const keys = JSON.stringify(incoming.map((g) => g.game_key));
+    const r = await statement(
+      db,
+      `UPDATE games SET source_missing=1 WHERE scope=? AND source_missing=0 AND game_key NOT IN(SELECT value FROM json_each(?))`,
+      scope,
+      keys,
+    ).run();
+    counts.missing = r.meta.changes;
+  }
+  return counts;
+}
+export function dbMessage(e) {
+  const m = String(e);
+  if (/STALE_WRITE/.test(m))
+    return 'Gara modificata da un altro aggiornamento. Ricarica e riprova.';
+  if (/free tier daily|daily row (read|write) limit/i.test(m))
+    return 'Quota gratuita condivisa dell’account raggiunta. Riprova dopo il ripristino giornaliero delle quote (00:00 UTC). Nessun upgrade viene attivato.';
+  if (/TIME_CONFLICT|MOVE_BOOKING_CONFLICT/.test(m))
+    return 'La persona è già impegnata in una partita con orario sovrapposto.';
+  if (/REMOVE_ASSIGNMENTS_FIRST/.test(m))
+    return 'Rimuovi prima gli incarichi incompatibili con questa modifica.';
+  if (/PERSON_NOT_ELIGIBLE/.test(m)) return 'Persona non approvata o non abilitata al ruolo.';
+  if (/GAME_NOT_BOOKABLE/.test(m)) return 'Gara o posto non prenotabile.';
+  if (/UNIQUE constraint/.test(m))
+    return 'Posto già occupato, persona già incaricata o dato già presente.';
+  return 'Operazione non riuscita. I dati precedenti sono conservati.';
+}
+export async function assign(db, key, role, slot, pid, source = 'self', actor = pid) {
+  if (!['referee', 'scorer'].includes(role) || !Number.isInteger(slot))
+    fail('Ruolo o posto non valido.');
+  const g = await one(db, 'SELECT start_ts FROM games WHERE game_key=?', key);
+  if (!g || g.start_ts <= Date.now()) fail('Prenotazione consentita soltanto per gare future.');
+  try {
+    await db.batch([
+      statement(
+        db,
+        'INSERT INTO assignments(game_key,role,slot,person_id,source,created_at) VALUES(?,?,?,?,?,?)',
+        key,
+        role,
+        slot,
+        pid,
+        source,
+        at(),
+      ),
+      audit(db, actor, 'booking_request', key, { role, slot, person_id: pid, source }),
+    ]);
+  } catch (e) {
+    fail(dbMessage(e), 409);
+  }
+}
+export async function applyFixed(db, teamId = null, keys = null) {
+  const games = await all(
+    db,
+    'SELECT game_key,team_id FROM games WHERE is_home=1 AND hidden=0 AND source_missing=0 AND start_ts>?' +
+      (teamId ? ' AND team_id=?' : ''),
+    ...[Date.now(), ...(teamId ? [teamId] : [])],
+  );
+  const fixed = await all(db, 'SELECT * FROM team_fixed');
+  const report = { created: 0, conflicts: [] };
+  for (const g of games.filter((g) => !keys || keys.includes(g.game_key))) {
+    for (const f of fixed.filter((x) => x.team_id === g.team_id)) {
+      if (
+        (await one(
+          db,
+          'SELECT 1 FROM fixed_exceptions WHERE game_key=? AND role=?',
+          g.game_key,
+          f.role,
+        )) ||
+        (await one(db, 'SELECT 1 FROM assignments WHERE game_key=? AND role=?', g.game_key, f.role))
+      )
+        continue;
+      try {
+        await assign(db, g.game_key, f.role, 1, f.person_id, 'fixed', 'PATTY-AUTO');
+        report.created++;
+      } catch (e) {
+        report.conflicts.push({ game_key: g.game_key, role: f.role, error: e.message });
+      }
+    }
+  }
+  return report;
+}
+async function fetchJSON(url, fetcher = fetch) {
+  const r = await fetcher(url, {
+    headers: { Accept: 'application/json', 'User-Agent': 'VolleyControl/1.0' },
+    signal: AbortSignal.timeout(25000),
+  });
+  if (!r.ok) fail('Fonte non disponibile (HTTP ' + r.status + ').', 502);
+  try {
+    return await r.json();
+  } catch {
+    fail('La fonte non ha restituito un calendario valido.', 502);
+  }
+}
+export async function syncScope(env, scope, resultsOnly = false) {
+  const teams = (await all(env.DB, 'SELECT * FROM teams WHERE active=1')).filter(
+    (t) => scopeFor(t) === scope,
+  );
+  if (!teams.length) fail('Nessuna squadra per questo calendario.');
+  const token = random(),
+    now = Date.now();
+  const lock = await statement(
+    env.DB,
+    'INSERT INTO sync_locks(scope,token,expires_at) VALUES(?,?,?) ON CONFLICT(scope) DO UPDATE SET token=excluded.token,expires_at=excluded.expires_at WHERE expires_at<? RETURNING token',
+    scope,
+    token,
+    now + 600000,
+    now,
+  ).first();
+  if (!lock) fail('Aggiornamento già in corso. Riprova tra poco.', 409);
+  try {
+    const last = await one(
+      env.DB,
+      'SELECT at FROM sync_runs WHERE scope=? AND error IS NULL',
+      scope,
+    );
+    if (last && Date.now() - Date.parse(last.at) < 30000)
+      fail('Calendario appena aggiornato. Attendi 30 secondi.', 429);
+    const t = teams[0],
+      fetcher = env.FETCH || fetch;
+    let games = [];
+    if (t.source === 'FIPAV') {
+      const payload = await fetchJSON(
+        'https://data.fipavonline.it/api/v2/calendar/0/' + t.group_id,
+        fetcher,
+      );
+      for (const team of teams) games.push(...normalizeFipav(payload, team));
+    } else {
+      const base = 'https://volley.pgsmilano.org/api/';
+      const registrations = await fetchJSON(
+        base + 'iscrizioni/campionato/' + t.competition,
+        fetcher,
+      );
+      const matches = await fetchJSON(base + 'calendari/campionato/' + t.competition, fetcher);
+      for (const team of teams) games.push(...normalizePgs(matches, registrations, team));
+    }
+    const unique = new Map();
+    for (const g of games) if (!unique.has(g.game_key) || g.is_home) unique.set(g.game_key, g);
+    await statement(
+      env.DB,
+      'INSERT INTO sync_jobs(id,scope,results_only,payload_json,created_at) VALUES(?,?,?,?,?)',
+      token,
+      scope,
+      +resultsOnly,
+      JSON.stringify([...unique.values()]),
+      at(),
+    ).run();
+    return { job_id: token, total: unique.size };
+  } catch (e) {
+    await env.DB.batch([
+      statement(env.DB, 'DELETE FROM sync_locks WHERE scope=? AND token=?', scope, token),
+      statement(
+        env.DB,
+        'INSERT INTO sync_runs(scope,at,report,error) VALUES(?,?,?,?) ON CONFLICT(scope) DO UPDATE SET at=excluded.at,error=excluded.error',
+        scope,
+        at(),
+        '{}',
+        e.message || 'Errore fonte',
+      ),
+    ]);
+    throw e;
+  }
+}
+export async function syncStep(env, id) {
+  const job = await one(env.DB, 'SELECT * FROM sync_jobs WHERE id=?', id);
+  if (!job) fail('Aggiornamento non trovato.', 404);
+  const lock = await one(
+    env.DB,
+    'SELECT token FROM sync_locks WHERE scope=? AND token=? AND expires_at>?',
+    job.scope,
+    id,
+    Date.now(),
+  );
+  if (!lock) fail('Aggiornamento scaduto. Riavvia da PATTY.', 409);
+  const games = JSON.parse(job.payload_json),
+    chunk = games.slice(job.offset, job.offset + 2);
+  const report = await saveImport(env.DB, chunk, job.scope, !!job.results_only, false);
+  if (!job.results_only)
+    report.fixed = await applyFixed(
+      env.DB,
+      null,
+      chunk.map((g) => g.game_key),
+    );
+  const total = JSON.parse(job.report_json);
+  for (const k of ['inserted', 'updated', 'unchanged', 'conflicts', 'missing'])
+    total[k] = (total[k] || 0) + (report[k] || 0);
+  total.errors = [...(total.errors || []), ...report.errors];
+  total.fixed_conflicts = [...(total.fixed_conflicts || []), ...(report.fixed?.conflicts || [])];
+  const offset = job.offset + chunk.length,
+    done = offset >= games.length;
+  const q = [];
+  if (done) {
+    if (!job.results_only)
+      q.push(
+        statement(
+          env.DB,
+          'UPDATE games SET source_missing=1 WHERE scope=? AND source_missing=0 AND game_key NOT IN(SELECT value FROM json_each(?))',
+          job.scope,
+          JSON.stringify(games.map((g) => g.game_key)),
+        ),
+      );
+    q.push(
+      statement(
+        env.DB,
+        'INSERT INTO sync_runs(scope,at,report,error) VALUES(?,?,?,NULL) ON CONFLICT(scope) DO UPDATE SET at=excluded.at,report=excluded.report,error=NULL',
+        job.scope,
+        at(),
+        JSON.stringify(total),
+      ),
+      statement(env.DB, 'DELETE FROM sync_jobs WHERE id=?', id),
+      statement(env.DB, 'DELETE FROM sync_locks WHERE scope=? AND token=?', job.scope, id),
+    );
+  } else
+    q.push(
+      statement(
+        env.DB,
+        'UPDATE sync_jobs SET offset=?,report_json=? WHERE id=? AND offset=?',
+        offset,
+        JSON.stringify(total),
+        id,
+        job.offset,
+      ),
+    );
+  await env.DB.batch(q);
+  return { done, offset, total: games.length, report: total };
+}
+
+async function calendar(db) {
+  const [rows, teams, assignments] = await Promise.all([
+    all(db, 'SELECT effective_json,source_missing FROM games ORDER BY date,time'),
+    all(db, 'SELECT * FROM teams'),
+    all(
+      db,
+      'SELECT a.game_key,a.role,a.slot,a.person_id,a.source,p.first_name,p.last_name FROM assignments a JOIN people p ON p.id=a.person_id',
+    ),
+  ]);
+  return {
+    games: rows.map((r) => ({
+      ...JSON.parse(r.effective_json),
+      source_missing: !!r.source_missing,
+    })),
+    teams,
+    assignments,
+  };
+}
+export const BACKUP_TABLES = [
+  'teams',
+  'people',
+  'games',
+  'assignments',
+  'team_fixed',
+  'fixed_exceptions',
+  'import_conflicts',
+  'audit',
+  'sync_runs',
+  'settings',
+];
+export async function exportBackup(db) {
+  const data = {};
+  for (const table of BACKUP_TABLES) data[table] = await all(db, `SELECT * FROM ${table}`);
+  return { format: 'volley-control-backup', version: 1, created_at: at(), data };
+}
+export async function restoreBackup(db, b) {
+  if (b?.format !== 'volley-control-backup' || b.version !== 1 || !b.data)
+    fail('Backup non riconosciuto.');
+  const count = await one(db, 'SELECT count(*) AS n FROM games');
+  const people = await one(db, 'SELECT count(*) AS n FROM people');
+  if (count.n || people.n)
+    fail('Ripristino consentito solo in un database di recupero vuoto.', 409);
+  const triggerRows = await all(
+    db,
+    "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name IN('booking_guard','game_retime_guard','audit_booking','audit_cancellation')",
+  );
+  const q = triggerRows.map((t) => statement(db, 'DROP TRIGGER ' + t.name));
+  for (const t of BACKUP_TABLES) {
+    if (!Array.isArray(b.data[t])) fail('Backup incompleto.');
+    for (const row of b.data[t]) {
+      const keys = Object.keys(row);
+      if (keys.some((k) => !/^[a-z_][a-z_0-9]*$/.test(k))) fail('Colonne non valide.');
+      q.push(
+        statement(
+          db,
+          `INSERT ${t === 'teams' ? 'OR REPLACE ' : ''}INTO ${t}(${keys.join(',')}) VALUES(${keys.map(() => '?').join(',')})`,
+          ...keys.map((k) => row[k]),
+        ),
+      );
+    }
+  }
+  for (const t of triggerRows) q.push(statement(db, t.sql));
+  if (q.length > 450) fail('Backup grande: usare il ripristino tecnico documentato.');
+  await db.batch(q);
+  return { ok: true };
+}
+export async function startRecovery(db, backup) {
+  if (backup?.format !== 'volley-control-backup' || backup.version !== 1 || !backup.data)
+    fail('Backup non riconosciuto.');
+  if (
+    (await one(db, 'SELECT count(*) n FROM games')).n ||
+    (await one(db, 'SELECT count(*) n FROM people')).n ||
+    (await one(db, 'SELECT count(*) n FROM restore_jobs')).n
+  )
+    fail('Usa un database di recupero nuovo e vuoto.', 409);
+  const rows = [];
+  for (const table of BACKUP_TABLES) {
+    if (!Array.isArray(backup.data[table])) fail('Backup incompleto.');
+    for (const row of backup.data[table]) {
+      if (Object.keys(row).some((k) => !/^[a-z_][a-z_0-9]*$/.test(k))) fail('Colonne non valide.');
+      rows.push({ table, row });
+    }
+  }
+  const payload = JSON.stringify(rows);
+  if (payload.length > 1500000)
+    fail('Backup grande: usare il ripristino tecnico in un database isolato.');
+  const triggers = await all(
+    db,
+    "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name IN('booking_guard','game_retime_guard','audit_booking','audit_cancellation')",
+  );
+  if (triggers.length !== 4) fail('Schema di recupero non valido.');
+  const id = random();
+  await db.batch([
+    ...triggers.map((t) => statement(db, 'DROP TRIGGER ' + t.name)),
+    statement(db, 'DELETE FROM teams'),
+    statement(
+      db,
+      'INSERT INTO restore_jobs(id,payload_json,triggers_json,created_at) VALUES(?,?,?,?)',
+      id,
+      payload,
+      JSON.stringify(triggers),
+      at(),
+    ),
+  ]);
+  return { job_id: id, total: rows.length };
+}
+export async function recoveryStep(db, id) {
+  const job = await one(db, 'SELECT * FROM restore_jobs WHERE id=?', id);
+  if (!job) fail('Ripristino non trovato.', 404);
+  const rows = JSON.parse(job.payload_json),
+    chunk = rows.slice(job.offset, job.offset + 20),
+    q = [];
+  for (const { table, row } of chunk) {
+    if (!BACKUP_TABLES.includes(table)) fail('Tabella non consentita.');
+    const keys = Object.keys(row);
+    q.push(
+      statement(
+        db,
+        `INSERT INTO ${table}(${keys.join(',')}) VALUES(${keys.map(() => '?')})`,
+        ...keys.map((k) => row[k]),
+      ),
+    );
+  }
+  const offset = job.offset + chunk.length,
+    done = offset >= rows.length;
+  if (done) {
+    for (const trigger of JSON.parse(job.triggers_json)) q.push(statement(db, trigger.sql));
+    q.push(statement(db, 'DELETE FROM restore_jobs WHERE id=?', id));
+  } else
+    q.push(
+      statement(
+        db,
+        'UPDATE restore_jobs SET offset=? WHERE id=? AND offset=?',
+        offset,
+        id,
+        job.offset,
+      ),
+    );
+  await db.batch(q);
+  if (done) {
+    const broken = await all(db, 'PRAGMA foreign_key_check');
+    if (broken.length) fail('Ripristino da verificare: integrità referenziale non valida.', 409);
+  }
+  return { done, offset, total: rows.length };
+}
+
+async function route(req, env) {
+  const url = new URL(req.url),
+    path = url.pathname;
+  if (!path.startsWith('/api/')) {
+    const asset = ASSETS[path];
+    if (!asset) return new Response('Pagina non trovata', { status: 404 });
+    return new Response(asset.body, {
+      headers: {
+        'Content-Type': asset.type,
+        'Cache-Control': path === '/' ? 'no-cache' : 'public, max-age=300',
+      },
+    });
+  }
+  if (!env.DB) fail('Database non configurato.', 503);
+  if (
+    env.RECOVERY_MODE === 'true' &&
+    ![
+      '/api/auth/login',
+      '/api/auth/logout',
+      '/api/me',
+      '/api/health',
+      '/api/admin/restore',
+      '/api/admin/restore/step',
+    ].includes(path)
+  )
+    fail('Ambiente di recupero isolato: consultazione e prenotazioni disabilitate.', 503);
+  if (req.method !== 'GET') {
+    if (req.headers.get('origin') !== url.origin) fail('Origine non autorizzata.', 403);
+    if (!['application/json'].some((x) => req.headers.get('content-type')?.startsWith(x)))
+      fail('Formato non consentito.', 415);
+  }
+  const s = await authenticate(req, env);
+  const actor = s?.admin ? 'PATTY' : s?.person_id;
+  if (path === '/api/health' && req.method === 'GET') {
+    await one(env.DB, 'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1');
+    return json({
+      ok: true,
+      release: RELEASE,
+      environment: env.ENVIRONMENT || 'staging',
+      persistent: true,
+    });
+  }
+  if (path === '/api/me' && req.method === 'GET')
+    return json({
+      user: s
+        ? {
+            id: s.person_id,
+            admin: !!s.admin,
+            first_name: s.first_name,
+            last_name: s.last_name,
+            wants_referee: !!s.wants_referee,
+            wants_scorer: !!s.wants_scorer,
+          }
+        : null,
+      csrf: s?.csrf || null,
+      registration_enabled: env.REGISTRATION_ENABLED === 'true',
+      staging: env.ENVIRONMENT !== 'production',
+    });
+  if (path === '/api/calendar' && req.method === 'GET') {
+    const data = await calendar(env.DB);
+    data.games = data.games.filter((g) => !g.hidden);
+    return json(data);
+  }
+  if (path === '/api/auth/register' && req.method === 'POST') {
+    if (env.REGISTRATION_ENABLED !== 'true') fail('Registrazioni reali non ancora aperte.', 403);
+    await throttle(env, req, 'register', 5);
+    const b = await body(req);
+    if (!b.staging_consent && env.ENVIRONMENT !== 'production')
+      fail('Usare solo dati fittizi in questo ambiente di prova.');
+    const email = clean(b.email).toLowerCase(),
+      first = clean(b.first_name),
+      last = clean(b.last_name);
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+      email.length > 254 ||
+      !first ||
+      !last ||
+      first.length > 120 ||
+      last.length > 120 ||
+      (!b.wants_referee && !b.wants_scorer)
+    )
+      fail('Inserisci nome, cognome, email e almeno un ruolo.');
+    if (env.ENVIRONMENT !== 'production' && !email.endsWith('@example.invalid'))
+      fail('Per il collaudo usa un indirizzo @example.invalid.');
+    const pwd = await passwordHash(b.password, env.PASSWORD_PEPPER);
+    try {
+      await statement(
+        env.DB,
+        'INSERT INTO people(id,email,first_name,last_name,password_hash,wants_referee,wants_scorer,created_at) VALUES(?,?,?,?,?,?,?,?)',
+        crypto.randomUUID(),
+        email,
+        first,
+        last,
+        pwd,
+        b.wants_referee ? 1 : 0,
+        b.wants_scorer ? 1 : 0,
+        at(),
+      ).run();
+    } catch {
+      fail('Email già registrata o dati non validi.', 409);
+    }
+    return json({ ok: true, message: 'Richiesta inviata. Attendi l’approvazione PATTY.' }, 201);
+  }
+  if (path === '/api/auth/login' && req.method === 'POST') {
+    await throttle(env, req, 'login');
+    const b = await body(req);
+    if (b.admin) {
+      if (!env.PATTY_HASH) fail('Accesso PATTY non ancora configurato.', 503);
+      if (!(await verifyPassword(b.password, env.PATTY_HASH, env.PASSWORD_PEPPER)))
+        fail('Credenziali non corrette.', 401);
+      return sessionReply(env, null, true);
+    }
+    const p = await one(env.DB, 'SELECT * FROM people WHERE email=?', clean(b.email).toLowerCase());
+    const valid = await verifyPassword(
+      b.password,
+      p?.password_hash || env.PATTY_HASH || '',
+      env.PASSWORD_PEPPER,
+    );
+    if (!p || !valid) fail('Credenziali non corrette.', 401);
+    if (!p.approved) fail('In attesa di approvazione da PATTY.', 403);
+    return sessionReply(env, p.id, false);
+  }
+  if (path === '/api/auth/logout' && req.method === 'POST') {
+    csrf(req, s);
+    await statement(env.DB, 'DELETE FROM sessions WHERE token_hash=?', s.token_hash).run();
+    return json({ ok: true }, 200, {
+      'Set-Cookie': '__Host-vc=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0',
+    });
+  }
+  if (req.method !== 'GET') csrf(req, s);
+  if (path === '/api/book' && req.method === 'POST') {
+    if (!s || s.admin || !s.person_id) fail('Accedi con il tuo account personale approvato.', 403);
+    const b = await body(req);
+    await assign(env.DB, b.game_key, b.role, b.slot, s.person_id);
+    return json({ ok: true }, 201);
+  }
+  if (path === '/api/cancel' && req.method === 'POST') {
+    if (!s) fail('Accesso richiesto.', 403);
+    const b = await body(req);
+    const a = await one(
+      env.DB,
+      'SELECT * FROM assignments WHERE game_key=? AND role=? AND slot=?',
+      b.game_key,
+      b.role,
+      b.slot,
+    );
+    if (!a) fail('Incarico non trovato.', 404);
+    if (!s.admin && (a.person_id !== s.person_id || a.source !== 'self'))
+      fail('Puoi annullare soltanto una tua prenotazione.', 403);
+    const q = [
+      statement(
+        env.DB,
+        'DELETE FROM assignments WHERE game_key=? AND role=? AND slot=?',
+        b.game_key,
+        b.role,
+        b.slot,
+      ),
+      audit(env.DB, actor, 'cancelled', b.game_key, { role: b.role, slot: b.slot }),
+    ];
+    if (s.admin)
+      q.push(
+        statement(
+          env.DB,
+          'INSERT OR IGNORE INTO fixed_exceptions(game_key,role) VALUES(?,?)',
+          b.game_key,
+          b.role,
+        ),
+      );
+    await env.DB.batch(q);
+    return json({ ok: true });
+  }
+  admin(s);
+  if (path === '/api/admin/state' && req.method === 'GET')
+    return json({
+      ...(await calendar(env.DB)),
+      people: await all(
+        env.DB,
+        'SELECT id,email,first_name,last_name,wants_referee,wants_scorer,approved,created_at FROM people ORDER BY last_name,first_name',
+      ),
+      fixed: await all(env.DB, 'SELECT * FROM team_fixed'),
+      sync: await all(env.DB, 'SELECT * FROM sync_runs'),
+      conflicts: await all(env.DB, 'SELECT * FROM import_conflicts'),
+    });
+  if (path === '/api/admin/person' && req.method === 'POST') {
+    const b = await body(req);
+    if (
+      typeof b.approved !== 'boolean' ||
+      typeof b.wants_referee !== 'boolean' ||
+      typeof b.wants_scorer !== 'boolean'
+    )
+      fail('Abilitazioni non valide.');
+    await env.DB.batch([
+      statement(
+        env.DB,
+        'UPDATE people SET approved=?,wants_referee=?,wants_scorer=? WHERE id=?',
+        +b.approved,
+        +b.wants_referee,
+        +b.wants_scorer,
+        b.id,
+      ),
+      statement(env.DB, 'DELETE FROM sessions WHERE person_id=?', b.id),
+      audit(env.DB, actor, 'person_authorization', null, {
+        id: b.id,
+        approved: b.approved,
+        referee: b.wants_referee,
+        scorer: b.wants_scorer,
+      }),
+    ]);
+    return json({ ok: true });
+  }
+  if (path === '/api/admin/team' && req.method === 'POST') {
+    const b = await body(req),
+      t = validateTeam(b),
+      existing = b.id ? await one(env.DB, 'SELECT * FROM teams WHERE id=?', b.id) : null;
+    if (b.id && !existing) fail('Squadra non trovata.', 404);
+    if (
+      existing &&
+      ['source', 'season', 'competition', 'group_id', 'official_team_id'].some(
+        (k) => existing[k] !== t[k],
+      )
+    )
+      fail(
+        'Gli identificativi della squadra non si cambiano: disattiva la precedente e aggiungi la nuova.',
+      );
+    const id = existing?.id || crypto.randomUUID();
+    await env.DB.batch([
+      statement(
+        env.DB,
+        `INSERT INTO teams(id,source,season,competition,group_id,official_team_id,name,category,short_name,coach1,coach2,managers,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,category=excluded.category,short_name=excluded.short_name,coach1=excluded.coach1,coach2=excluded.coach2,managers=excluded.managers,active=excluded.active`,
+        id,
+        ...[
+          'source',
+          'season',
+          'competition',
+          'group_id',
+          'official_team_id',
+          'name',
+          'category',
+          'short_name',
+          'coach1',
+          'coach2',
+          'managers',
+          'active',
+        ].map((k) => t[k]),
+      ),
+      audit(env.DB, actor, 'team_saved', null, { id }),
+    ]);
+    return json({ ok: true, id });
+  }
+  if (path === '/api/admin/fixed' && req.method === 'POST') {
+    const b = await body(req);
+    if (!['referee', 'scorer'].includes(b.role)) fail('Ruolo non valido.');
+    const q = [
+      statement(env.DB, 'DELETE FROM team_fixed WHERE team_id=? AND role=?', b.team_id, b.role),
+      statement(
+        env.DB,
+        `DELETE FROM assignments WHERE source='fixed' AND role=? AND game_key IN(SELECT game_key FROM games WHERE team_id=? AND start_ts>?)`,
+        b.role,
+        b.team_id,
+        Date.now(),
+      ),
+    ];
+    if (b.person_id) {
+      const p = await one(env.DB, 'SELECT * FROM people WHERE id=?', b.person_id);
+      if (!p?.approved || !p['wants_' + b.role]) fail('Persona non abilitata.');
+      q.push(
+        statement(
+          env.DB,
+          'INSERT INTO team_fixed(team_id,role,person_id) VALUES(?,?,?)',
+          b.team_id,
+          b.role,
+          b.person_id,
+        ),
+      );
+    }
+    q.push(audit(env.DB, actor, 'fixed_changed', null, b));
+    await env.DB.batch(q);
+    return json({
+      ok: true,
+      pending: await all(
+        env.DB,
+        'SELECT game_key FROM games WHERE team_id=? AND start_ts>? AND is_home=1',
+        b.team_id,
+        Date.now(),
+      ),
+    });
+  }
+  if (path === '/api/admin/fixed/apply' && req.method === 'POST') {
+    const b = await body(req);
+    return json({ ok: true, ...(await applyFixed(env.DB, null, [b.game_key])) });
+  }
+  if (path === '/api/admin/assign' && req.method === 'POST') {
+    const b = await body(req);
+    await assign(env.DB, b.game_key, b.role, b.slot, b.person_id, 'patty', actor);
+    return json({ ok: true });
+  }
+  if (path === '/api/admin/game' && req.method === 'POST') {
+    const b = await body(req),
+      patch = validatePatch(b.patch);
+    const old = await one(env.DB, 'SELECT * FROM games WHERE game_key=?', b.game_key);
+    if (!old) fail('Gara non trovata.', 404);
+    const official = JSON.parse(old.official_json),
+      overrides = { ...JSON.parse(old.overrides_json), ...patch };
+    const g = { ...official, ...overrides };
+    if (!g.date || !g.time) fail('Indica sia data sia ora.');
+    try {
+      await saveGame(env.DB, g, official, overrides, actor, clean(b.reason), old.version);
+    } catch (e) {
+      fail(dbMessage(e), 409);
+    }
+    return json({ ok: true, game: g, fixed: await applyFixed(env.DB, g.team_id, [g.game_key]) });
+  }
+  if (path === '/api/admin/override/reset' && req.method === 'POST') {
+    const b = await body(req),
+      old = await one(env.DB, 'SELECT * FROM games WHERE game_key=?', b.game_key);
+    if (!old) fail('Gara non trovata.', 404);
+    const overrides = JSON.parse(old.overrides_json);
+    delete overrides[b.field];
+    const official = JSON.parse(old.official_json);
+    try {
+      await saveGame(
+        env.DB,
+        { ...official, ...overrides },
+        official,
+        overrides,
+        actor,
+        'Ripristino valore ufficiale',
+        old.version,
+      );
+      await statement(
+        env.DB,
+        'DELETE FROM import_conflicts WHERE game_key=? AND field=?',
+        b.game_key,
+        b.field,
+      ).run();
+    } catch (e) {
+      fail(dbMessage(e), 409);
+    }
+    return json({ ok: true });
+  }
+  if (path === '/api/admin/manual' && req.method === 'POST') {
+    const b = await body(req),
+      t = await one(env.DB, 'SELECT * FROM teams WHERE id=?', b.team_id);
+    if (!t) fail('Squadra non trovata.');
+    const patch = validatePatch(b.patch);
+    if (!patch.date || !patch.time || !clean(b.opponent)) fail('Indica avversaria, data e ora.');
+    const key = 'MANUAL:' + t.season + ':' + crypto.randomUUID();
+    const g = {
+      game_key: key,
+      team_id: t.id,
+      source: 'MANUAL',
+      season: t.season,
+      group_id: '',
+      official_id: key,
+      our_team_id: t.official_team_id,
+      our_team_name: t.name,
+      category: t.category,
+      home_team: b.is_home ? t.name : clean(b.opponent),
+      away_team: b.is_home ? clean(b.opponent) : t.name,
+      is_home: !!b.is_home,
+      required_referees: b.is_home ? 1 : 0,
+      required_scorers: b.is_home ? 1 : 0,
+      played: false,
+      home_sets: null,
+      away_sets: null,
+      sets: [],
+      hidden: false,
+      venue: 'Palestra non indicata',
+      address: '',
+      game_number: '',
+      notes: '',
+      ...patch,
+    };
+    await saveGame(env.DB, g, g, {}, actor, 'Inserimento manuale');
+    return json({ ok: true, game: g }, 201);
+  }
+  if (path === '/api/admin/sync' && req.method === 'POST') {
+    const b = await body(req);
+    return json(await syncScope(env, clean(b.scope), b.results_only === true));
+  }
+  if (path === '/api/admin/sync/step' && req.method === 'POST') {
+    const b = await body(req);
+    return json(await syncStep(env, clean(b.job_id)));
+  }
+  if (path === '/api/admin/audit' && req.method === 'GET')
+    return json({
+      audit: await all(
+        env.DB,
+        'SELECT * FROM audit WHERE game_key=? ORDER BY id DESC LIMIT 100',
+        url.searchParams.get('game_key') || '',
+      ),
+    });
+  if (path === '/api/admin/backup' && req.method === 'GET')
+    return json(await exportBackup(env.DB), 200, {
+      'Content-Disposition': 'attachment; filename="volley-control-backup.json"',
+    });
+  if (path === '/api/admin/restore' && req.method === 'POST') {
+    if (env.RECOVERY_MODE !== 'true')
+      fail('Ripristino disponibile solo nell’ambiente di recupero isolato.', 403);
+    return json(await startRecovery(env.DB, await body(req)));
+  }
+  if (path === '/api/admin/restore/step' && req.method === 'POST') {
+    if (env.RECOVERY_MODE !== 'true') fail('Ripristino non abilitato.', 403);
+    const b = await body(req);
+    return json(await recoveryStep(env.DB, b.job_id));
+  }
+  if (path === '/api/admin/usage' && req.method === 'GET')
+    return json({
+      daily: await all(env.DB, 'SELECT * FROM usage_daily ORDER BY day DESC LIMIT 14'),
+      quota_scope:
+        'Le quote sono condivise con tutte le app dell’account. Questi contatori riguardano solo Volley Control.',
+      account_plan_verified: env.FREE_PLAN_VERIFIED === 'true',
+      limits: {
+        worker_requests: 100000,
+        d1_reads: 5000000,
+        d1_writes: 100000,
+        database_bytes: 500000000,
+      },
+      sync: await all(env.DB, 'SELECT * FROM sync_runs'),
+    });
+  fail('Operazione non trovata.', 404);
+}
+export function instrumentDB(db, meter) {
+  const collect = (r) => {
+    for (const x of Array.isArray(r) ? r : [r]) {
+      meter.reads += x?.meta?.rows_read || 0;
+      meter.writes += x?.meta?.rows_written || 0;
+    }
+    return r;
+  };
+  return {
+    prepare(sql) {
+      const raw = db.prepare(sql);
+      return {
+        bind(...p) {
+          const bound = raw.bind(...p);
+          return {
+            sql,
+            p,
+            _raw: bound,
+            async all() {
+              return collect(await bound.all());
+            },
+            async first() {
+              const r = collect(await bound.all());
+              return r.results[0] || null;
+            },
+            async run() {
+              return collect(await bound.run());
+            },
+          };
+        },
+      };
+    },
+    async batch(q) {
+      return collect(await db.batch(q.map((x) => x._raw || x)));
+    },
+  };
+}
+export default {
+  async fetch(req, env, ctx) {
+    const meter = { reads: 0, writes: 0 },
+      rawDB = env.DB;
+    if (rawDB) env = { ...env, DB: instrumentDB(rawDB, meter) };
+    let res;
+    try {
+      res = await route(req, env);
+    } catch (e) {
+      res = json({ error: e.status ? e.message : dbMessage(e) }, e.status || 500);
+    }
+    if (rawDB && new URL(req.url).pathname.startsWith('/api/') && ctx?.waitUntil) {
+      ctx.waitUntil(
+        statement(
+          rawDB,
+          `INSERT INTO usage_daily(day,reads,writes,requests) VALUES(?,?,?,1) ON CONFLICT(day) DO UPDATE SET reads=reads+excluded.reads,writes=writes+excluded.writes,requests=requests+1`,
+          new Date().toISOString().slice(0, 10),
+          meter.reads,
+          meter.writes,
+        )
+          .run()
+          .catch(() => {}),
+      );
+    }
+    const headers = new Headers(res.headers);
+    headers.set('X-Content-Type-Options', 'nosniff');
+    headers.set('Referrer-Policy', 'same-origin');
+    headers.set('X-Frame-Options', 'DENY');
+    headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    headers.set(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    );
+    headers.set('Strict-Transport-Security', 'max-age=31536000');
+    headers.set('X-Volley-Release', RELEASE);
+    return new Response(res.body, { status: res.status, headers });
+  },
+};
