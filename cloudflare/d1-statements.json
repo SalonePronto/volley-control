@@ -203,5 +203,30 @@
     "migration": "0006_cancellation_guards.sql",
     "sql": "INSERT INTO schema_migrations VALUES(6,strftime('%Y-%m-%dT%H:%M:%fZ','now'));",
     "params": []
+  },
+  {
+    "migration": "0007_open_registration_roles.sql",
+    "sql": "ALTER TABLE people ADD COLUMN wants_manager INTEGER NOT NULL DEFAULT 0 CHECK(wants_manager IN(0,1));",
+    "params": []
+  },
+  {
+    "migration": "0007_open_registration_roles.sql",
+    "sql": "ALTER TABLE people ADD COLUMN wants_coach INTEGER NOT NULL DEFAULT 0 CHECK(wants_coach IN(0,1));",
+    "params": []
+  },
+  {
+    "migration": "0007_open_registration_roles.sql",
+    "sql": "DROP TRIGGER booking_guard;",
+    "params": []
+  },
+  {
+    "migration": "0007_open_registration_roles.sql",
+    "sql": "CREATE TRIGGER booking_guard BEFORE INSERT ON assignments BEGIN\n SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM people WHERE id=NEW.person_id AND approved=1)\n  THEN RAISE(ABORT,'PERSON_NOT_ELIGIBLE') END;\n SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM games WHERE game_key=NEW.game_key AND is_home=1 AND hidden=0 AND source_missing=0\n  AND start_ts IS NOT NULL AND NEW.slot <= CASE NEW.role WHEN 'referee' THEN required_referees ELSE required_scorers END)\n  THEN RAISE(ABORT,'GAME_NOT_BOOKABLE') END;\n SELECT CASE WHEN EXISTS(SELECT 1 FROM assignments a JOIN games other ON other.game_key=a.game_key\n  JOIN games target ON target.game_key=NEW.game_key WHERE a.person_id=NEW.person_id\n  AND other.hidden=0 AND target.start_ts<other.end_ts AND other.start_ts<target.end_ts)\n  THEN RAISE(ABORT,'TIME_CONFLICT') END;\nEND;",
+    "params": []
+  },
+  {
+    "migration": "0007_open_registration_roles.sql",
+    "sql": "INSERT INTO schema_migrations VALUES(7,strftime('%Y-%m-%dT%H:%M:%fZ','now'));",
+    "params": []
   }
 ]
