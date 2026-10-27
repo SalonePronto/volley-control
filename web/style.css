@@ -184,6 +184,17 @@ h2 {
   font-size: 26px;
   line-height: 29px;
 }
+/* Categorie come "1 DIVISIONE": due righe leggibili senza uscire dal riquadro. */
+.category--long strong {
+  display: block;
+  max-width: 100%;
+  padding-inline: 2px;
+  font-size: 11px;
+  line-height: 13px;
+  overflow-wrap: break-word;
+  white-space: normal;
+  text-align: center;
+}
 .category span {
   font-size: 12px;
   line-height: 18px;
