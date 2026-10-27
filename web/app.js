@@ -223,11 +223,17 @@ function render() {
     state.user && !state.user.admin ? 'Esci dall’area personale' : 'Area personale';
   const games = state.games.filter((g) => g.date && g.time && !g.hidden);
   const weeks = [...new Set(games.map((g) => weekOf(g.date)))].sort();
-  $('#weeks').innerHTML = weeks
-    .map(
-      (w) => `<button data-week="${w}" aria-pressed="${state.week === w}">${weekLabel(w)}</button>`,
-    )
-    .join('');
+  const baseWeek = state.week || weekOf(isoNow());
+  const prevWeek = [...weeks].reverse().find((x) => x < baseWeek),
+    nextWeek = weeks.find((x) => x > baseWeek),
+    range = (x) => weekLabel(x).replace('GARE ', '');
+  $('#weeks').innerHTML =
+    `<button class="step" ${prevWeek ? `data-week="${prevWeek}"` : 'disabled'} aria-label="Settimana precedente">‹</button>` +
+    `<label class="week-pick"><span>${state.week ? 'Settimana' : 'Settimana corrente'}</span>` +
+    `<select id="week-select" aria-label="Scegli la settimana"><option value="">Home · ${range(baseWeek)}</option>` +
+    weeks.map((x) => `<option value="${x}" ${state.week === x ? 'selected' : ''}>${range(x)}</option>`).join('') +
+    `</select></label>` +
+    `<button class="step" ${nextWeek ? `data-week="${nextWeek}"` : 'disabled'} aria-label="Settimana successiva">›</button>`;
   const w = state.week || weekOf(isoNow());
   $('#title').textContent = state.week ? weekLabel(w) : 'HOME · Gare casalinghe da coprire';
   let rows = games.filter((g) => weekOf(g.date) === w);
@@ -272,21 +278,18 @@ function rowHTML(g) {
   const t = state.teams.find((t) => t.id === g.team_id) || {},
     cat = g.category.match(/\bU\s*\d+/i)?.[0].replace(/\s/g, '') || g.category,
     longCat = cat.length > 5,
-    st = status(g),
-    side = g.is_home ? 'CASA' : 'TRASFERTA',
     weekday = new Intl.DateTimeFormat('it-IT', { weekday: 'short', timeZone: 'UTC' }).format(
       new Date(g.date + 'T12:00:00Z'),
-    );
-  return `<article class="fixture" data-game-key="${esc(g.game_key)}"><div class="block category${longCat ? ' category--long' : ''}"><strong>${esc(cat)}</strong><span>${esc(g.source)}</span><small>N. ${esc(g.game_number || '—')}</small></div><div class="block date"><span>${esc(weekday)} ${shortDate(g.date)}</span><span>${esc(g.time)}</span><small>${side}</small></div><div class="block match"><span title="${esc(g.home_team)}">${esc(g.home_team)}</span><span title="${esc(g.away_team)}">${esc(g.away_team)}${g.played ? ' · ' + g.home_sets + '–' + g.away_sets : ''}</span><span title="${esc(g.venue + ' · ' + g.address)}">${esc(g.venue)} · ${esc(g.address)}</span></div><div class="block staff"><div><span>ALL. ${esc(t.coach1 || '—')}</span>${t.coach2 ? '<span>' + esc(t.coach2) + '</span>' : ''}</div><div><span class="managers">DIR. ${esc(t.managers?.replace(/\n/g, ', ') || '—')}</span></div></div><div class="block roles">${
-    g.is_home
-      ? Object.entries(ROLES)
-          .map(
-            ([r, label]) =>
-              `<div><b>${dot(g, r)} ${label}</b><span>${esc(names(g, r))}</span></div>`,
-          )
-          .join('')
-      : ''
-  }</div><div class="block"><div class="status ${!g.is_home ? 'away' : st === 'Completa' ? 'ready' : 'open'}">${esc(st)}</div></div><div class="mobile"><span class="identity"><span class="cat">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span>${shortDate(g.date)}</span><span>${esc(g.time)}</span><span>${dot(g, 'referee')}</span><span>${dot(g, 'scorer')}</span></div><button class="open-game" data-open="${esc(g.game_key)}">Vedi scheda</button></article>`;
+    ),
+    day = weekday.charAt(0).toUpperCase() + weekday.slice(1),
+    result = g.played ? ' · ' + g.home_sets + '–' + g.away_sets : '',
+    who = [['referee', 'Arb'], ['scorer', 'Ref']]
+      .filter(([r]) => names(g, r))
+      .map(([r, l]) => l + ': ' + names(g, r))
+      .join(' · '),
+    whoHtml = who ? '<small class="who">' + esc(who) + '</small>' : '',
+    mark = (r, label) => `<span class="mark">${dot(g, r)}<small>${label}</small></span>`;
+  return `<article class="fixture${g.is_home ? '' : ' away'}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(day)} ${shortDate(g.date)}</b><em>${esc(g.time)}</em>${g.is_home ? '' : '<small>Trasferta</small>'}</span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}">${esc(g.home_team)} – ${esc(g.away_team)}${esc(result)}${whoHtml}</span><span class="seats">${mark('referee', 'Arb')}${mark('scorer', 'Ref')}</span></div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
 }
 function modal(title, html) {
   $('#dialog-title').textContent = title;
@@ -334,7 +337,7 @@ async function showGame(key) {
         seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${isFederal ? (r === 'referee' ? 'Arbitro federale' : 'Refertista federale') : a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${isFederal ? '' : a ? (state.user?.admin || (state.user?.id === a.person_id && a.source === 'self') ? `<button data-cancel ${data}>${state.user?.admin ? 'Rimuovi incarico' : 'Annulla la mia prenotazione'}</button>` : '') : `<button data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi dall’area personale per prenotarti'}">Mi prenoto</button>`}</div>`;
       }
   }
-  let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div><div class="grid">${card('Gara', g.game_number || 'Numero non presente', (g.is_home ? 'Casa' : 'Trasferta') + ' · ' + g.source)}${card('Palestra e indirizzo', g.venue, g.address)}${card('Staff squadra', t.coach1 || 'Da inserire', 'Secondo allenatore: ' + (t.coach2 || '—') + ' · Dirigenti: ' + (t.managers?.replace(/\n/g, ', ') || 'Da inserire'))}${card('Copertura', status(g), 'Arbitro: ' + (names(g, 'referee') || (g.is_home ? 'Da assegnare' : 'Non richiesto')) + ' · Refertista: ' + (names(g, 'scorer') || (g.is_home ? 'Da assegnare' : 'Non richiesto')))}</div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}${card('Risultato', g.played ? g.home_sets + ' – ' + g.away_sets : 'Non ancora disponibile', (g.sets || []).map((s, i) => i + 1 + '° ' + s.home + '–' + s.away).join(' · '))}${g.notes ? card('Note', g.notes) : ''}`;
+  let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="grid">${card('Gara', g.game_number || 'Numero non presente', (g.is_home ? 'Casa' : 'Trasferta') + ' · ' + g.source)}${card('Palestra e indirizzo', g.venue, g.address)}${card('Staff squadra', t.coach1 || 'Da inserire', 'Secondo allenatore: ' + (t.coach2 || '—') + ' · Dirigenti: ' + (t.managers?.replace(/\n/g, ', ') || 'Da inserire'))}${card('Copertura', status(g), 'Arbitro: ' + (names(g, 'referee') || (g.is_home ? 'Da assegnare' : 'Non richiesto')) + ' · Refertista: ' + (names(g, 'scorer') || (g.is_home ? 'Da assegnare' : 'Non richiesto')))}</div>${g.venue || g.address ? `<a class="maps" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((g.venue || '') + ' ' + (g.address || ''))}" target="_blank" rel="noopener">Apri in Maps</a>` : ''}${card('Risultato', g.played ? g.home_sets + ' – ' + g.away_sets : 'Non ancora disponibile', (g.sets || []).map((s, i) => i + 1 + '° ' + s.home + '–' + s.away).join(' · '))}${g.notes ? card('Note', g.notes) : ''}`;
   if (state.user?.admin) {
     if (g.is_home) {
       html += `<section class="card"><h3>PATTY · Designazione federale</h3><form data-form="federal" data-key="${esc(key)}"><div class="actions">${check('Arbitro federale', 'federal_referee', federal(g, 'referee'))}${check('Refertista federale', 'federal_scorer', federal(g, 'scorer'))}</div><p class="notice">Federale: posto coperto e non prenotabile. Se già occupato, rimuovi prima l’incarico.</p><button class="primary">Salva scelta federali</button></form></section>`;
@@ -644,6 +647,11 @@ document.addEventListener('submit', async (e) => {
   } finally {
     if (button) button.disabled = false;
   }
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'week-select') return;
+  state.week = e.target.value || null;
+  render();
 });
 document.addEventListener('click', async (e) => {
   const b = e.target.closest('button');
