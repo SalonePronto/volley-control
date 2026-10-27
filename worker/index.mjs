@@ -14,7 +14,7 @@ import {
   validateTeam,
   EDITABLE,
 } from './domain.mjs';
-export const RELEASE = 'cf-staging-2026-10-27.7';
+export const RELEASE = 'cf-staging-2026-10-27.8';
 const enc = new TextEncoder();
 const hex = (buffer) =>
   Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -339,6 +339,8 @@ export function dbMessage(e) {
     return 'La persona è già impegnata in una partita con orario sovrapposto.';
   if (/REMOVE_ASSIGNMENTS_FIRST/.test(m))
     return 'Rimuovi prima gli incarichi incompatibili con questa modifica.';
+  if (/FEDERAL_SLOT/.test(m)) return 'Posto coperto da un ufficiale federale: prenotazione non consentita.';
+  if (/FEDERAL_CONFLICT/.test(m)) return 'Prima di indicare Federale, PATTY deve rimuovere gli incarichi già assegnati per quel ruolo.';
   if (/PERSON_NOT_ELIGIBLE/.test(m)) return 'Persona non approvata o non abilitata al ruolo.';
   if (/GAME_NOT_BOOKABLE/.test(m)) return 'Gara o posto non prenotabile.';
   if (/UNIQUE constraint/.test(m))
@@ -348,8 +350,10 @@ export function dbMessage(e) {
 export async function assign(db, key, role, slot, pid, source = 'self', actor = pid) {
   if (!['referee', 'scorer'].includes(role) || !Number.isInteger(slot))
     fail('Ruolo o posto non valido.');
-  const g = await one(db, 'SELECT start_ts FROM games WHERE game_key=?', key);
+  const g = await one(db, 'SELECT start_ts,effective_json FROM games WHERE game_key=?', key);
   if (!g || g.start_ts <= Date.now()) fail('Prenotazione consentita soltanto per gare future.');
+  if (JSON.parse(g.effective_json || '{}')['federal_' + role])
+    fail('Posto coperto da un ufficiale federale: prenotazione non consentita.', 409);
   try {
     await db.batch([
       statement(
@@ -371,7 +375,7 @@ export async function assign(db, key, role, slot, pid, source = 'self', actor = 
 export async function applyFixed(db, teamId = null, keys = null) {
   const games = await all(
     db,
-    'SELECT game_key,team_id FROM games WHERE is_home=1 AND hidden=0 AND source_missing=0 AND start_ts>?' +
+    'SELECT game_key,team_id,effective_json FROM games WHERE is_home=1 AND hidden=0 AND source_missing=0 AND start_ts>?' +
       (teamId ? ' AND team_id=?' : ''),
     ...[Date.now(), ...(teamId ? [teamId] : [])],
   );
@@ -379,6 +383,7 @@ export async function applyFixed(db, teamId = null, keys = null) {
   const report = { created: 0, conflicts: [] };
   for (const g of games.filter((g) => !keys || keys.includes(g.game_key))) {
     for (const f of fixed.filter((x) => x.team_id === g.team_id)) {
+      if (JSON.parse(g.effective_json || '{}')['federal_' + f.role]) continue;
       if (
         (await one(
           db,

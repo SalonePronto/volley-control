@@ -868,3 +868,37 @@ test('WebSocket event is pushed only after a successful booking or cancellation'
   assert.equal((await statement(db, 'SELECT count(*) n FROM assignments').first()).n, 0);
   db.close();
 });
+
+test('Federali per gara: prenotazione bloccata, conflitti protetti e ritorno libero',async()=>{
+ const db=new LocalD1(),env=envFor(db),id=await addPerson(db,'TEST-FED');
+ await game(db);
+ const admin=await loginAdmin(env);
+ let r=await call(env,'admin/game',{game_key:GAME.game_key,patch:{federal_referee:true,federal_scorer:false}},admin);
+ assert.equal(r.status,200);
+ assert.equal(r.body.game.federal_referee,true);
+ assert.equal(roleState(r.body.game,[],'referee'),'covered');
+ await assert.rejects(()=>assign(db,GAME.game_key,'referee',1,id),/federale/i);
+ await assign(db,GAME.game_key,'scorer',1,id);
+ r=await call(env,'admin/game',{game_key:GAME.game_key,patch:{federal_scorer:true}},admin);
+ assert.equal(r.status,409);
+ assert.match(r.body.error,/rimuovere gli incarichi/i);
+ assert.equal((await statement(db,'SELECT count(*) n FROM assignments').first()).n,1);
+ await statement(db,"DELETE FROM assignments WHERE game_key=? AND role='scorer'",GAME.game_key).run();
+ r=await call(env,'admin/game',{game_key:GAME.game_key,patch:{federal_referee:true,federal_scorer:true}},admin);
+ assert.equal(r.status,200);
+ await assert.rejects(()=>assign(db,GAME.game_key,'scorer',1,id),/federale/i);
+ r=await call(env,'admin/game',{game_key:GAME.game_key,patch:{federal_referee:false,federal_scorer:false}},admin);
+ assert.equal(r.status,200);
+ await assign(db,GAME.game_key,'referee',1,id);
+ assert.equal((await statement(db,'SELECT count(*) n FROM assignments').first()).n,1);
+ db.close();
+});
+test('Incarichi fissi non sovrascrivono il federale',async()=>{
+ const db=new LocalD1(),id=await addPerson(db,'TEST-FED-FIX');
+ await game(db);
+ await statement(db,'INSERT INTO team_fixed(team_id,role,person_id) VALUES(?,?,?)',GAME.team_id,'referee',id).run();
+ await saveGame(db,{...GAME,federal_referee:true},GAME,{federal_referee:true});
+ assert.equal((await applyFixed(db,null,[GAME.game_key])).created,0);
+ assert.equal((await statement(db,'SELECT count(*) n FROM assignments').first()).n,0);
+ db.close();
+});

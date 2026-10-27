@@ -53,9 +53,13 @@ function weekLabel(w) {
   return 'GARE ' + shortDate(w) + ' – ' + shortDate(e.toISOString().slice(0, 10));
 }
 const assigned = (g) => state.assignments.filter((a) => a.game_key === g.game_key);
+const federal = (g, r) => !!g.is_home && !!g['federal_' + r];
+const missingSeats = (g, r) => federal(g, r) ? 0 :
+  Math.max(0, required(g, r) - assigned(g).filter((a) => a.role === r).length);
 const required = (g, r) =>
   g.is_home ? Number(g[r === 'referee' ? 'required_referees' : 'required_scorers'] || 0) : 0;
 function roleState(g, r) {
+  if (federal(g, r)) return 'covered';
   const n = required(g, r);
   return !n ? 'na' : assigned(g).filter((a) => a.role === r).length >= n ? 'covered' : 'missing';
 }
@@ -78,6 +82,7 @@ function status(g) {
         : 'Completa';
 }
 const names = (g, r) =>
+  federal(g, r) ? (r === 'referee' ? 'Arbitro federale' : 'Refertista federale') :
   assigned(g)
     .filter((a) => a.role === r)
     .map((a) => a.first_name + ' ' + a.last_name)
@@ -213,7 +218,7 @@ function render() {
   const fullWeek = games.filter((g) => weekOf(g.date) === w);
   const allMiss = (r) =>
     fullWeek.reduce(
-      (s, g) => s + Math.max(0, required(g, r) - assigned(g).filter((a) => a.role === r).length),
+      (s, g) => s + missingSeats(g, r),
       0,
     );
   $('#metrics').innerHTML = [
@@ -227,7 +232,7 @@ function render() {
     .join('');
   const miss = (r) =>
     rows.reduce(
-      (s, g) => s + Math.max(0, required(g, r) - assigned(g).filter((a) => a.role === r).length),
+      (s, g) => s + missingSeats(g, r),
       0,
     );
   $('#summary').textContent =
@@ -295,16 +300,19 @@ async function showGame(key) {
   let seats = '';
   if (g.is_home) {
     for (const [r, label] of Object.entries(ROLES))
-      for (let slot = 1; slot <= required(g, r); slot++) {
+      for (let slot = 1; slot <= Math.max(required(g, r), federal(g, r) ? 1 : 0); slot++) {
         const a = assigned(g).find((a) => a.role === r && a.slot === slot);
         const data = `data-game="${esc(key)}" data-role="${r}" data-slot="${slot}"`;
-        const allowed =
-          state.user && !state.user.admin && !g.source_missing;
-        seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${a ? (state.user?.admin || (state.user?.id === a.person_id && a.source === 'self') ? `<button data-cancel ${data}>${state.user?.admin ? 'Rimuovi incarico' : 'Annulla la mia prenotazione'}</button>` : '') : `<button data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi dall’area personale per prenotarti'}">Mi prenoto</button>`}</div>`;
+        const isFederal = federal(g, r);
+        const allowed = state.user && !state.user.admin && !g.source_missing && !isFederal;
+        seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${isFederal ? (r === 'referee' ? 'Arbitro federale' : 'Refertista federale') : a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${isFederal ? '' : a ? (state.user?.admin || (state.user?.id === a.person_id && a.source === 'self') ? `<button data-cancel ${data}>${state.user?.admin ? 'Rimuovi incarico' : 'Annulla la mia prenotazione'}</button>` : '') : `<button data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi dall’area personale per prenotarti'}">Mi prenoto</button>`}</div>`;
       }
   }
   let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div><div class="grid">${card('Gara', g.game_number || 'Numero non presente', (g.is_home ? 'Casa' : 'Trasferta') + ' · ' + g.source)}${card('Palestra e indirizzo', g.venue, g.address)}${card('Staff squadra', t.coach1 || 'Da inserire', 'Secondo allenatore: ' + (t.coach2 || '—') + ' · Dirigenti: ' + (t.managers?.replace(/\n/g, ', ') || 'Da inserire'))}${card('Copertura', status(g), 'Arbitro: ' + (names(g, 'referee') || (g.is_home ? 'Da assegnare' : 'Non richiesto')) + ' · Refertista: ' + (names(g, 'scorer') || (g.is_home ? 'Da assegnare' : 'Non richiesto')))}</div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}${card('Risultato', g.played ? g.home_sets + ' – ' + g.away_sets : 'Non ancora disponibile', (g.sets || []).map((s, i) => i + 1 + '° ' + s.home + '–' + s.away).join(' · '))}${g.notes ? card('Note', g.notes) : ''}`;
   if (state.user?.admin) {
+    if (g.is_home) {
+      html += `<section class="card"><h3>PATTY · Designazione federale</h3><form data-form="federal" data-key="${esc(key)}"><div class="actions">${check('Arbitro federale', 'federal_referee', federal(g, 'referee'))}${check('Refertista federale', 'federal_scorer', federal(g, 'scorer'))}</div><p class="notice">Federale: posto coperto e non prenotabile. Se già occupato, rimuovi prima l’incarico.</p><button class="primary">Salva scelta federali</button></form></section>`;
+    }
     html += `<details><summary>PATTY · Correggi dato</summary><form data-form="game-edit" data-key="${esc(key)}">${select(
       'Campo',
       'field',
@@ -500,6 +508,17 @@ async function submit(f) {
         reason: b.reason,
       });
       state.week = weekOf(r.game.date);
+      break;
+    }
+    case 'federal': {
+      await api('admin/game', {
+        game_key: f.dataset.key,
+        patch: {
+          federal_referee: !!b.federal_referee,
+          federal_scorer: !!b.federal_scorer,
+        },
+        reason: 'PATTY · Designazione federale',
+      });
       break;
     }
     case 'game-edit': {

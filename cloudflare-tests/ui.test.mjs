@@ -287,3 +287,26 @@ test('dirigente registrato automaticamente e prenotazione accessibile',async()=>
  await u.click('[data-open]');assert.equal(u.w.document.querySelector('[data-book][data-role="referee"]').disabled,false);
  }finally{u.dom.window.close();u.db.close();}
 });
+
+test('PATTY attiva e disattiva le due spunte federali nella scheda partita',async()=>{
+ const u=await setup();
+ try{
+  await saveGame(u.db,GAME,GAME,{});
+  await u.start();
+  await u.click('#patty');
+  await u.submit('form[data-form="login"]',{password});
+  await u.click('[data-week]');
+  await u.click('[data-open]');
+  const form='form[data-form="federal"]';
+  assert.ok(u.w.document.querySelector(form+' [name="federal_referee"]'));
+  assert.ok(u.w.document.querySelector(form+' [name="federal_scorer"]'));
+  await u.submit(form,{federal_referee:true,federal_scorer:true});
+  assert.match(u.w.document.querySelector('#dialog-content').textContent,/Arbitro federale/);
+  assert.match(u.w.document.querySelector('#dialog-content').textContent,/Refertista federale/);
+  assert.ok(u.w.document.querySelectorAll('#games .dot.covered').length>=2);
+  assert.equal(u.w.document.querySelector('#dialog-content [data-book]'),null);
+  await u.submit(form,{federal_referee:false,federal_scorer:false});
+  assert.ok(u.w.document.querySelector('#dialog-content [data-book][data-role="referee"]'));
+  assert.ok(u.w.document.querySelector('#games .dot.missing'));
+ }finally{u.dom.window.close();u.db.close();}
+});

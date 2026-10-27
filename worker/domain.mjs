@@ -74,6 +74,7 @@ export function scopeFor(t) {
 export const required = (g, r) =>
   !g.is_home ? 0 : Number(g[r === 'referee' ? 'required_referees' : 'required_scorers'] || 0);
 export function roleState(g, as, r) {
+  if (g.is_home && g['federal_' + r]) return 'covered';
   const n = required(g, r);
   return !n ? 'na' : as.filter((x) => x.role === r).length >= n ? 'covered' : 'missing';
 }
@@ -237,6 +238,8 @@ export const EDITABLE = {
   required_referees: 'Arbitri richiesti',
   required_scorers: 'Refertisti richiesti',
   hidden: 'Nascondi / annulla gara',
+  federal_referee: 'Arbitro federale',
+  federal_scorer: 'Refertista federale',
 };
 export function validatePatch(p) {
   if (!p || typeof p !== 'object' || Array.isArray(p) || !Object.keys(p).length)
@@ -246,7 +249,7 @@ export function validatePatch(p) {
     if (!(k in EDITABLE)) fail('Campo non modificabile.');
     if (k === 'date') v = dateISO(v);
     else if (k === 'time') v = hour(v);
-    else if (['hidden', 'played'].includes(k)) {
+    else if (['hidden', 'played', 'federal_referee', 'federal_scorer'].includes(k)) {
       if (typeof v !== 'boolean') fail('Valore booleano richiesto.');
     } else if (['home_sets', 'away_sets', 'required_referees', 'required_scorers'].includes(k)) {
       if (!Number.isInteger(v) || v < 0 || v > 10) fail('Numero fuori intervallo 0–10.');
