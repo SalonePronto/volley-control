@@ -992,3 +992,27 @@ test('PGS: se nome o categoria non coincidono, nessuna associazione forzata',asy
  assert.equal((await statement(db,'SELECT count(*) n FROM team_roster WHERE linked_team_id IS NOT NULL').first()).n,3);
  db.close();
 });
+
+test('PATTY rinnova in modo scorrevole la sessione, ma non una già scaduta', async () => {
+  const db = new LocalD1(), env = envFor(db);
+  try {
+    const auth = await loginAdmin(env);
+    const cookieToken = auth.cookie.slice('__Host-vc='.length);
+    const { sha } = await import('../worker/index.mjs');
+    const hash = await sha(cookieToken);
+    const nearExpiry = Date.now() + 60_000;
+    await statement(db, 'UPDATE sessions SET expires_at=? WHERE token_hash=?', nearExpiry, hash).run();
+    const req = () => new Request('https://test.invalid/api/me', { headers: { Cookie: auth.cookie } });
+    const renew = await worker.fetch(req(), env);
+    assert.equal(renew.status, 200);
+    assert.equal((await renew.json()).user.admin, true);
+    assert.match(renew.headers.get('set-cookie'), /Max-Age=1800/);
+    const extended = await statement(db, 'SELECT expires_at FROM sessions WHERE token_hash=?', hash).first();
+    assert.ok(extended.expires_at > nearExpiry + 20 * 60_000);
+
+    await statement(db, 'UPDATE sessions SET expires_at=? WHERE token_hash=?', Date.now() - 1, hash).run();
+    const expired = await worker.fetch(req(), env);
+    assert.equal((await expired.json()).user, null);
+    assert.equal(expired.headers.get('set-cookie'), null);
+  } finally { db.close(); }
+});
