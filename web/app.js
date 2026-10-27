@@ -451,40 +451,29 @@ async function syncAll(resultsOnly) {
         ),
     ),
   ];
-  const reports = [];
+  let failures = 0;
   const buttons = [...document.querySelectorAll('[data-sync]')];
   buttons.forEach((b) => (b.disabled = true));
   for (const scope of scopes) {
     try {
-      notice('Aggiornamento ' + scope + '…');
+      // Un solo comando e un solo messaggio: nessun percorso differente
+      // o report per squadra è mostrato durante l'aggiornamento.
+      notice('Aggiornamento in corso…');
       const job = await api('admin/sync', { scope, results_only: resultsOnly });
       let step;
       do {
         step = await api('admin/sync/step', { job_id: job.job_id });
-        notice(`${scope}: ${step.offset}/${step.total} gare elaborate…`);
       } while (!step.done);
-      reports.push(
-        scope +
-          ': ' +
-          step.report.inserted +
-          ' nuove, ' +
-          step.report.updated +
-          ' aggiornate, ' +
-          step.report.unchanged +
-          ' invariate' +
-          (step.report.errors.length
-            ? ' · ' + step.report.errors.map((x) => x.error).join('; ')
-            : '') +
-          (step.report.fixed_conflicts.length
-            ? ' · ' + step.report.fixed_conflicts.length + ' conflitti incarichi fissi'
-            : ''),
-      );
+      if (step.report.errors.length || step.report.fixed_conflicts.length) failures++;
     } catch (e) {
-      reports.push(scope + ': ' + e.message);
+      failures++;
+      console.error('Aggiornamento calendario non riuscito:', scope, e);
     }
   }
   await load();
-  notice(reports.join(' | '));
+  notice(failures
+    ? 'Aggiornamento parziale: alcuni calendari richiedono una verifica.'
+    : 'Aggiornamento completato.');
 }
 function formData(f) {
   return Object.fromEntries(new FormData(f));
