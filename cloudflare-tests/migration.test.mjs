@@ -205,17 +205,17 @@ test('hash salato con pepper, password errata e lunghezza minima', async () => {
   assert.ok(!(await verifyPassword('TEST-only-long-password', h, 'different')));
   assert.ok(!(await verifyPassword('TEST-wrong-password', h, 'pepper')));
   assert.notEqual(h, await passwordHash('TEST-only-long-password', 'pepper'));
-  await assert.rejects(passwordHash('short', 'pepper'));
+  assert.ok(await verifyPassword('1234', await passwordHash('1234', 'pepper'), 'pepper'));
+  await assert.rejects(passwordHash('abc', 'pepper'));
 });
 test('registrazione, approvazione manuale, entrambi i ruoli, nessuna impersonificazione', async () => {
   const db = new LocalD1(),
     env = envFor(db),
     adm = await loginAdmin(env);
   let r = await call(env, 'auth/register', {
-    email: 'test@example.invalid',
     first_name: 'TEST',
     last_name: 'COLLAUDO',
-    password: 'TEST-only-password-123',
+    password: 'P123',
     wants_referee: true,
     wants_scorer: true,
     staging_consent: true,
@@ -224,16 +224,18 @@ test('registrazione, approvazione manuale, entrambi i ruoli, nessuna impersonifi
   assert.equal(
     (
       await call(env, 'auth/login', {
-        email: 'test@example.invalid',
-        password: 'TEST-only-password-123',
+        first_name: 'TEST',
+        last_name: 'COLLAUDO',
+        password: 'P123',
       })
     ).status,
     403,
   );
   const person = await statement(
     db,
-    'SELECT * FROM people WHERE email=?',
-    'test@example.invalid',
+    'SELECT * FROM people WHERE first_name=? AND last_name=?',
+    'TEST',
+    'COLLAUDO',
   ).first();
   assert.equal(person.approved, 0);
   await call(
@@ -445,14 +447,16 @@ test('limitazione accessi e dati fittizi obbligatori sullo staging', async () =>
     env = envFor(db);
   for (let i = 0; i < 8; i++)
     await call(env, 'auth/login', {
-      email: 'missing@example.invalid',
-      password: 'TEST-only-password-123',
+      first_name: 'MISSING',
+      last_name: 'USER',
+      password: 'P123',
     });
   assert.equal(
     (
       await call(env, 'auth/login', {
-        email: 'missing@example.invalid',
-        password: 'TEST-only-password-123',
+        first_name: 'MISSING',
+        last_name: 'USER',
+        password: 'P123',
       })
     ).status,
     429,
@@ -462,8 +466,7 @@ test('limitazione accessi e dati fittizi obbligatori sullo staging', async () =>
       await call(env, 'auth/register', {
         first_name: 'TEST',
         last_name: 'TEST',
-        email: 'private@real.example',
-        password: 'TEST-only-password-123',
+        password: '123',
         wants_referee: true,
         staging_consent: true,
       })
@@ -764,4 +767,27 @@ test('annullamento concorrente non rimuove un incarico appena riassegnato a un a
   );
   assert.equal((await statement(db, 'SELECT count(*) n FROM cancellation_guards').first()).n, 0);
   db.close();
+});
+
+test('Nome/cognome e codice: univocità e approvazione', async()=>{
+ const db=new LocalD1(),env=envFor(db);
+ const data={first_name:'SIMONA',last_name:'PROVA',password:'P123',wants_referee:true,wants_scorer:false,staging_consent:true};
+ assert.equal((await call(env,'auth/register',data)).status,201);
+ assert.equal((await call(env,'auth/register',{...data,first_name:'simona'})).status,409);
+ assert.equal((await call(env,'auth/login',{...data,password:'1234'})).status,401);
+ const person=await statement(db,"SELECT * FROM people WHERE first_name='SIMONA'").first();
+ assert.equal(person.approved,0);
+ const admin=await loginAdmin(env);
+ assert.equal((await call(env,'admin/person',{id:person.id,approved:true,wants_referee:true,wants_scorer:false},admin)).status,200);
+ assert.equal((await call(env,'auth/login',data)).status,200);
+ db.close();
+});
+test('PATTY: passa al codice corto, vecchia password non utilizzabile',async()=>{
+ const db=new LocalD1(),env=envFor(db),admin=await loginAdmin(env);
+ assert.equal((await call(env,'admin/pin',{pin:'123',confirm:'123'},admin)).status,400);
+ assert.equal((await call(env,'admin/pin',{pin:'A123',confirm:'B123'},admin)).status,400);
+ assert.equal((await call(env,'admin/pin',{pin:'A123',confirm:'A123'},admin)).status,200);
+ assert.equal((await call(env,'auth/login',{admin:true,password:'TEST-only-password-123'})).status,401);
+ assert.equal((await call(env,'auth/login',{admin:true,password:'A123'})).status,200);
+ db.close();
 });

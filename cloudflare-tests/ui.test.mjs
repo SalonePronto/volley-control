@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { LocalD1 } from './db.mjs';
-import worker, { passwordHash, statement, saveGame } from '../worker/index.mjs';
+import worker, { passwordHash, sha, statement, saveGame } from '../worker/index.mjs';
 const password = 'TEST-only-UI-password-123';
+const personPin = 'P123';
 async function flush(window) {
   let idle = 0;
   for (let i = 0; i < 400; i++) {
@@ -145,10 +146,10 @@ test('frontend → API: login personale, Mi prenoto, nominativo e annullamento',
       u.db,
       'INSERT INTO people VALUES(?,?,?,?,?,?,?,?,?)',
       'TEST-ui-person',
-      'test-ui@example.invalid',
+      (await sha(JSON.stringify(['test','utente']))) + '@example.invalid',
       'TEST',
       'UTENTE',
-      await passwordHash(password, u.env.PASSWORD_PEPPER),
+      await passwordHash(personPin, u.env.PASSWORD_PEPPER),
       1,
       1,
       1,
@@ -157,7 +158,7 @@ test('frontend → API: login personale, Mi prenoto, nominativo e annullamento',
     await u.start();
     await u.click('[data-week]');
     await u.click('#access');
-    await u.submit('form[data-form="login"]', { email: 'test-ui@example.invalid', password });
+    await u.submit('form[data-form="login"]', { first_name: 'TEST', last_name: 'UTENTE', password: personPin });
     await u.click('[data-open]');
     assert.equal(u.w.document.querySelector('[data-book]').disabled, false);
     await u.click('[data-book][data-role="referee"]');
@@ -200,6 +201,12 @@ test('frontend PATTY: completamento gara incompleta e cambio settimana', async (
     await u.click('#patty');
     await u.submit('form[data-form="login"]', { password });
     assert.equal(u.w.document.querySelector('#admin').hidden, false);
+    await u.submit('form[data-form="patty-pin"]', { pin: 'P444', confirm: 'P444' });
+    assert.ok((await statement(u.db, "SELECT value FROM settings WHERE key='patty_pin_hash'").first())?.value);
+    await u.click('#patty');
+    await u.click('#patty');
+    await u.submit('form[data-form="login"]', { password: 'P444' });
+    assert.equal(u.w.document.querySelector('#admin').hidden, false);
     await u.submit('form[data-form="pending"]', {
       date: '2030-01-06',
       time: '20:15',
@@ -213,4 +220,21 @@ test('frontend PATTY: completamento gara incompleta e cambio settimana', async (
     u.dom.window.close();
     u.db.close();
   }
+});
+
+test('Registrazione senza email e con codice 4 caratteri', async () => {
+  const u=await setup();
+  try {
+    await u.start();
+    await u.click('#access');
+    const area=u.w.document.querySelector('#dialog-content');
+    assert.equal(area.querySelector('[name="email"]'), null);
+    const f=area.querySelector('form[data-form="register"]');
+    assert.equal(f.elements.namedItem('password').maxLength,4);
+    await u.submit('form[data-form="register"]', {
+      first_name:'MARIO',last_name:'COLLAUDO',password:'A123',
+      wants_referee:true,wants_scorer:true,staging_consent:true,
+    });
+    assert.equal((await statement(u.db,'SELECT count(*) n FROM people').first()).n,1);
+  } finally {u.dom.window.close();u.db.close();}
 });

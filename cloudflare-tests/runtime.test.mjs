@@ -60,7 +60,7 @@ test('runtime Cloudflare workerd + D1: migrazioni, auth, cookie, prenotazioni at
     const health = await request('health');
     assert.equal(health.status, 200);
     assert.equal(health.body.schema_version, 6);
-    assert.equal(health.body.release, 'cf-staging-2026-10-27.2');
+    assert.equal(health.body.release, 'cf-staging-2026-10-27.4');
     let r = await request('auth/login', { admin: true, password });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.match(r.headers.get('set-cookie'), /HttpOnly/);
@@ -90,10 +90,9 @@ test('runtime Cloudflare workerd + D1: migrazioni, auth, cookie, prenotazioni at
     const users = [];
     for (const name of ['runtime-one', 'runtime-two']) {
       r = await request('auth/register', {
-        email: name + '@example.invalid',
         first_name: 'TEST',
         last_name: name,
-        password,
+        password: 'P123',
         wants_referee: true,
         wants_scorer: true,
         staging_consent: true,
@@ -101,8 +100,9 @@ test('runtime Cloudflare workerd + D1: migrazioni, auth, cookie, prenotazioni at
       assert.equal(r.status, 201, JSON.stringify(r.body));
       const p = await statement(
         db,
-        'SELECT id FROM people WHERE email=?',
-        name + '@example.invalid',
+        'SELECT id FROM people WHERE first_name=? AND last_name=?',
+        'TEST',
+        name,
       ).first();
       assert.equal(
         (
@@ -114,7 +114,7 @@ test('runtime Cloudflare workerd + D1: migrazioni, auth, cookie, prenotazioni at
         ).status,
         200,
       );
-      r = await request('auth/login', { email: name + '@example.invalid', password });
+      r = await request('auth/login', { first_name: 'TEST', last_name: name, password: 'P123' });
       assert.equal(r.status, 200);
       users.push({ cookie: r.headers.get('set-cookie').split(';')[0], csrf: r.body.csrf });
     }
