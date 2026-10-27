@@ -1,8 +1,8 @@
 {
   "application": "VOLLEY CONTROL",
   "environment": "staging",
-  "release": "cf-staging-2026-10-27.10",
-  "source_base_commit": "4138d0aafd7536df95eebb68c3162916f08411d2",
+  "release": "cf-staging-2026-10-27.11",
+  "source_base_commit": "c56548a29b9fbdab9bde8d217a85071a8fe19b29",
   "target_worker": "volley-control-dev",
   "target_database": "volley-control-dev-db",
   "account_id": "be2a6531623a2d7500aabcf3a6efe5ce",
@@ -11,8 +11,8 @@
   "worker": {
     "path": "cloudflare/worker.mjs",
     "main_module": "worker.mjs",
-    "sha256": "CHECKSUM_DA_AGGIORNARE",
-    "bytes": 114733
+    "sha256": "pending-refresh",
+    "bytes": 115699
   },
   "schema": {
     "path": "cloudflare/schema.sql",
