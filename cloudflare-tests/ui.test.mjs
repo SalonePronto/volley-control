@@ -29,6 +29,23 @@ async function setup() {
     script = await readFile(new URL('../web/app.js', import.meta.url), 'utf8');
   const dom = new JSDOM(html, { url: 'https://test.invalid/', runScripts: 'outside-only' }),
     w = dom.window;
+  // Simula la connessione push in modo deterministico, senza rete nei test DOM.
+  const sockets = [];
+  w.WebSocket = class {
+    constructor(url) {
+      this.url = url;
+      this.readyState = 1;
+      sockets.push(this);
+      queueMicrotask(() => this.onopen?.());
+    }
+    close() { this.readyState = 3; this.onclose?.(); }
+    static OPEN = 1;
+  };
+  w.testSendLiveChange = () => {
+    for (const socket of sockets)
+      if (socket.readyState === 1)
+        socket.onmessage?.({ data: '{"type":"calendar-changed"}' });
+  };
   let cookie = '',
     pending = 0;
   w.testPending = () => pending;
@@ -83,6 +100,26 @@ async function setup() {
     },
   };
 }
+test('notifica live aggiorna il posto su un secondo dispositivo, senza F5', async () => {
+  const u = await setup();
+  try {
+    await saveGame(u.db, GAME, GAME, {});
+    await u.start();
+    await u.click('[data-week]');
+    assert.equal(u.w.document.querySelectorAll('#games .mobile .dot.missing').length, 2);
+    await statement(u.db,
+      'INSERT INTO people(id,email,first_name,last_name,password_hash,wants_referee,wants_scorer,approved,created_at) VALUES(?,?,?,?,?,?,?,?,?)',
+      'LIVE-person', 'live@invalid.example', 'TEST', 'LIVE', 'test-hash', 1, 1, 1,
+      new Date().toISOString()).run();
+    await statement(u.db,
+      "INSERT INTO assignments(game_key,role,slot,person_id,source,created_at) VALUES(?,?,?,?,?,?)",
+      GAME.game_key, 'referee', 1, 'LIVE-person', 'self', new Date().toISOString()).run();
+    u.w.testSendLiveChange();
+    await flush(u.w);
+    assert.match(u.w.document.querySelector('#games').textContent, /TEST LIVE/);
+    assert.equal(u.w.document.querySelectorAll('#games .mobile .dot.missing').length, 1);
+  } finally { u.dom.window.close(); u.db.close(); }
+});
 const GAME = {
   game_key: 'TEST:UI',
   team_id: 'FIPAV:229693',
