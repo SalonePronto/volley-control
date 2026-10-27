@@ -214,8 +214,8 @@ function access(admin = false) {
     ? (state.patty_pin_set ? codeField('Codice PATTY (4 caratteri)', 'password') : field('Password PATTY attuale', 'password', '', 'password', true))
     : names + codeField('Codice personale (4 caratteri)', 'password');
   modal(
-    admin ? 'PATTY · Accesso organizzatore' : 'Arbitri e refertisti · Accesso',
-    `<form data-form="login" data-admin="${admin}">${credentials}<button class="primary">Accedi</button></form>${!admin && state.registration_enabled ? `<details><summary>Prima registrazione · Solo collaudo</summary><p class="notice">Usa soltanto nome e cognome inventati. Nessuna email.</p><form data-form="register">${names}${codeField('Codice di 4 caratteri', 'password')}<div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}</div><label>${check('Confermo che sono dati fittizi', 'staging_consent')}</label><div class="actions"><button>Richiedi registrazione</button></div></form></details>` : !admin ? '<p class="notice">Registrazioni non ancora aperte in questo ambiente.</p>' : ''}`,
+    admin ? 'PATTY · Accesso organizzatore' : 'Area personale · Accesso',
+    `<form data-form="login" data-admin="${admin}">${credentials}<button class="primary">Accedi</button></form>${!admin && state.registration_enabled ? `<details><summary>Prima registrazione · Solo collaudo</summary><p class="notice">Usa soltanto nome e cognome inventati. Nessuna email.</p><form data-form="register">${names}${codeField('Codice di 4 caratteri', 'password')}<div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}${check('Dirigente', 'wants_manager')}${check('Allenatore', 'wants_coach')}</div><label>${check('Confermo che sono dati fittizi', 'staging_consent')}</label><div class="actions"><button>Registrati ed entra</button></div></form></details>` : !admin ? '<p class="notice">Registrazioni non ancora aperte in questo ambiente.</p>' : ''}`,
   );
 }
 async function showGame(key) {
@@ -232,8 +232,8 @@ async function showGame(key) {
         const a = assigned(g).find((a) => a.role === r && a.slot === slot);
         const data = `data-game="${esc(key)}" data-role="${r}" data-slot="${slot}"`;
         const allowed =
-          state.user && !state.user.admin && state.user['wants_' + r] && !g.source_missing;
-        seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${a ? (state.user?.admin || (state.user?.id === a.person_id && a.source === 'self') ? `<button data-cancel ${data}>${state.user?.admin ? 'Rimuovi incarico' : 'Annulla la mia prenotazione'}</button>` : '') : `<button data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi con un account approvato e abilitato'}">Mi prenoto</button>`}</div>`;
+          state.user && !state.user.admin && !g.source_missing;
+        seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${a ? (state.user?.admin || (state.user?.id === a.person_id && a.source === 'self') ? `<button data-cancel ${data}>${state.user?.admin ? 'Rimuovi incarico' : 'Annulla la mia prenotazione'}</button>` : '') : `<button data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi dall’area personale per prenotarti'}">Mi prenoto</button>`}</div>`;
       }
   }
   let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div><div class="grid">${card('Gara', g.game_number || 'Numero non presente', (g.is_home ? 'Casa' : 'Trasferta') + ' · ' + g.source)}${card('Palestra e indirizzo', g.venue, g.address)}${card('Staff squadra', t.coach1 || 'Da inserire', 'Secondo allenatore: ' + (t.coach2 || '—') + ' · Dirigenti: ' + (t.managers?.replace(/\n/g, ', ') || 'Da inserire'))}${card('Copertura', status(g), 'Arbitro: ' + (names(g, 'referee') || (g.is_home ? 'Da assegnare' : 'Non richiesto')) + ' · Refertista: ' + (names(g, 'scorer') || (g.is_home ? 'Da assegnare' : 'Non richiesto')))}</div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}${card('Risultato', g.played ? g.home_sets + ' – ' + g.away_sets : 'Non ancora disponibile', (g.sets || []).map((s, i) => i + 1 + '° ' + s.home + '–' + s.away).join(' · '))}${g.notes ? card('Note', g.notes) : ''}`;
@@ -297,11 +297,11 @@ function renderAdmin() {
   html += `<details><summary>Codice PATTY · 4 caratteri ${state.patty_pin_set ? '(attivo)' : '(da impostare)'}</summary><p class="notice">Salva il codice: al prossimo accesso sostituirà la password precedente.</p><form data-form="patty-pin">${codeField('Nuovo codice PATTY', 'pin')}${codeField('Ripeti il codice', 'confirm')}<button>Salva codice PATTY</button></form></details>`;
   html += `<details ${pending.length ? 'open' : ''}><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><form data-form="pending" data-key="${esc(g.game_key)}"><div class="grid">${field('Data confermata', 'date', g.date || '', 'date', true)}${field('Ora confermata', 'time', g.time || '', 'time', true)}</div>${field('Motivo / riferimento', 'reason')}<button>Salva e inserisci nel calendario</button></form></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
   html +=
-    '<details><summary>Persone · Approvazioni e abilitazioni</summary>' +
+    '<details><summary>Persone · Accesso e ruoli</summary>' +
     a.people
       .map(
         (p) =>
-          `<div class="person"><b>${esc(p.first_name + ' ' + p.last_name)}</b><form data-form="person" data-id="${esc(p.id)}"><div class="checks">${check('Approvato', 'approved', p.approved)}${check('Arbitro', 'wants_referee', p.wants_referee)}${check('Refertista', 'wants_scorer', p.wants_scorer)}</div><button>Salva abilitazioni</button></form></div>`,
+          `<div class="person"><b>${esc(p.first_name + ' ' + p.last_name)}</b><form data-form="person" data-id="${esc(p.id)}"><div class="checks">${check('Attivo', 'approved', p.approved)}${check('Arbitro', 'wants_referee', p.wants_referee)}${check('Refertista', 'wants_scorer', p.wants_scorer)}${check('Dirigente', 'wants_manager', p.wants_manager)}${check('Allenatore', 'wants_coach', p.wants_coach)}</div><button>Salva ruoli</button></form></div>`,
       )
       .join('') +
     '</details>';
@@ -412,10 +412,13 @@ async function submit(f) {
         ...b,
         wants_referee: !!b.wants_referee,
         wants_scorer: !!b.wants_scorer,
+        wants_manager: !!b.wants_manager,
+        wants_coach: !!b.wants_coach,
         staging_consent: !!b.staging_consent,
       });
-      notice('Richiesta inviata. Attendi l’approvazione PATTY.', true);
-      f.reset();
+      $('#dialog').close();
+      await load();
+      notice('Registrazione completata. Sei già connesso.');
       return;
     case 'patty-pin':
       await api('admin/pin', { pin: b.pin, confirm: b.confirm });
@@ -463,6 +466,8 @@ async function submit(f) {
         approved: !!b.approved,
         wants_referee: !!b.wants_referee,
         wants_scorer: !!b.wants_scorer,
+        wants_manager: !!b.wants_manager,
+        wants_coach: !!b.wants_coach,
       });
       break;
     case 'team':

@@ -14,7 +14,7 @@ import {
   validateTeam,
   EDITABLE,
 } from './domain.mjs';
-export const RELEASE = 'cf-staging-2026-10-27.5';
+export const RELEASE = 'cf-staging-2026-10-27.6';
 const enc = new TextEncoder();
 const hex = (buffer) =>
   Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -129,7 +129,7 @@ export async function authenticate(req, env) {
   if (!token) return null;
   const s = await one(
     env.DB,
-    'SELECT s.*, p.approved,p.wants_referee,p.wants_scorer,p.first_name,p.last_name FROM sessions s LEFT JOIN people p ON p.id=s.person_id WHERE token_hash=? AND expires_at>?',
+    'SELECT s.*, p.approved,p.wants_referee,p.wants_scorer,p.wants_manager,p.wants_coach,p.first_name,p.last_name FROM sessions s LEFT JOIN people p ON p.id=s.person_id WHERE token_hash=? AND expires_at>?',
     await sha(token),
     Date.now(),
   );
@@ -758,6 +758,8 @@ async function route(req, env) {
             last_name: s.last_name,
             wants_referee: !!s.wants_referee,
             wants_scorer: !!s.wants_scorer,
+            wants_manager: !!s.wants_manager,
+            wants_coach: !!s.wants_coach,
           }
         : null,
       csrf: s?.csrf || null,
@@ -778,22 +780,23 @@ async function route(req, env) {
     if (!b.staging_consent && env.ENVIRONMENT !== 'production')
       fail('Usare solo dati fittizi in questo ambiente di prova.');
     const first = clean(b.first_name), last = clean(b.last_name);
-    if (!first || !last || first.length > 120 || last.length > 120 || (!b.wants_referee && !b.wants_scorer))
-      fail('Inserisci nome, cognome e almeno un ruolo.');
+    if (!first || !last || first.length > 120 || last.length > 120 || (!b.wants_referee && !b.wants_scorer && !b.wants_manager && !b.wants_coach))
+      fail('Inserisci nome, cognome e almeno una figura.');
     if (!validCode(b.password)) fail('Codice di 4 caratteri, solo lettere o numeri.');
     const key = await identityKey(first, last);
     const pwd = await passwordHash(b.password, env.PASSWORD_PEPPER);
     try {
       await statement(
         env.DB,
-        'INSERT INTO people(id,email,first_name,last_name,password_hash,wants_referee,wants_scorer,created_at) VALUES(?,?,?,?,?,?,?,?)',
+        'INSERT INTO people(id,email,first_name,last_name,password_hash,wants_referee,wants_scorer,wants_manager,wants_coach,approved,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
         crypto.randomUUID(), key, first, last, pwd,
-        b.wants_referee ? 1 : 0, b.wants_scorer ? 1 : 0, at(),
+        b.wants_referee ? 1 : 0, b.wants_scorer ? 1 : 0,
+        b.wants_manager ? 1 : 0, b.wants_coach ? 1 : 0, 1, at(),
       ).run();
     } catch {
       fail('Nome e cognome già registrati: chiedi a PATTY come distinguere due omonimi.', 409);
     }
-    return json({ ok: true, message: 'Richiesta inviata. Attendi l’approvazione PATTY.' }, 201);
+    return sessionReply(env, (await one(env.DB, 'SELECT id FROM people WHERE email=?', key)).id, false);
   }
   if (path === '/api/auth/login' && req.method === 'POST') {
     await throttle(env, req, 'login');
@@ -811,7 +814,7 @@ async function route(req, env) {
     const person = await one(env.DB, 'SELECT * FROM people WHERE email=?', key);
     const valid = await verifyPassword(b.password, person?.password_hash || env.PATTY_HASH || '', env.PASSWORD_PEPPER);
     if (!person || !valid) fail('Nome, cognome o codice non corretti.', 401);
-    if (!person.approved) fail('In attesa di approvazione da PATTY.', 403);
+    if (!person.approved) fail('Account disattivato. Contatta PATTY.', 403);
     return sessionReply(env, person.id, false);
   }
   if (path === '/api/auth/logout' && req.method === 'POST') {
@@ -823,7 +826,7 @@ async function route(req, env) {
   }
   if (req.method !== 'GET') csrf(req, s);
   if (path === '/api/book' && req.method === 'POST') {
-    if (!s || s.admin || !s.person_id) fail('Accedi con il tuo account personale approvato.', 403);
+    if (!s || s.admin || !s.person_id) fail('Accedi dall’area personale.', 403);
     const b = await body(req);
     await assign(env.DB, b.game_key, b.role, b.slot, s.person_id);
     return json({ ok: true }, 201);
@@ -906,7 +909,7 @@ async function route(req, env) {
       ...(await calendar(env.DB)),
       people: await all(
         env.DB,
-        'SELECT id,first_name,last_name,wants_referee,wants_scorer,approved,created_at FROM people ORDER BY last_name,first_name',
+        'SELECT id,first_name,last_name,wants_referee,wants_scorer,wants_manager,wants_coach,approved,created_at FROM people ORDER BY last_name,first_name',
       ),
       fixed: await all(env.DB, 'SELECT * FROM team_fixed'),
       sync: await all(env.DB, 'SELECT * FROM sync_runs'),
@@ -917,16 +920,20 @@ async function route(req, env) {
     if (
       typeof b.approved !== 'boolean' ||
       typeof b.wants_referee !== 'boolean' ||
-      typeof b.wants_scorer !== 'boolean'
+      typeof b.wants_scorer !== 'boolean' ||
+      typeof b.wants_manager !== 'boolean' ||
+      typeof b.wants_coach !== 'boolean'
     )
       fail('Abilitazioni non valide.');
     await env.DB.batch([
       statement(
         env.DB,
-        'UPDATE people SET approved=?,wants_referee=?,wants_scorer=? WHERE id=?',
+        'UPDATE people SET approved=?,wants_referee=?,wants_scorer=?,wants_manager=?,wants_coach=? WHERE id=?',
         +b.approved,
         +b.wants_referee,
         +b.wants_scorer,
+        +b.wants_manager,
+        +b.wants_coach,
         b.id,
       ),
       statement(env.DB, 'DELETE FROM sessions WHERE person_id=?', b.id),
@@ -935,6 +942,8 @@ async function route(req, env) {
         approved: b.approved,
         referee: b.wants_referee,
         scorer: b.wants_scorer,
+        manager: b.wants_manager,
+        coach: b.wants_coach,
       }),
     ]);
     return json({ ok: true });
