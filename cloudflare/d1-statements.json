@@ -228,5 +228,50 @@
     "migration": "0007_open_registration_roles.sql",
     "sql": "INSERT INTO schema_migrations VALUES(7,strftime('%Y-%m-%dT%H:%M:%fZ','now'));",
     "params": []
+  },
+  {
+    "migration": "0009_team_roster.sql",
+    "sql": "CREATE TABLE team_roster (id INTEGER PRIMARY KEY, season TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN('FIPAV','PGS')), category TEXT NOT NULL, name TEXT NOT NULL, coach1 TEXT NOT NULL DEFAULT '', coach2 TEXT NOT NULL DEFAULT '', managers TEXT NOT NULL DEFAULT '', linked_team_id TEXT UNIQUE REFERENCES teams(id), UNIQUE(season,source,category,name));",
+    "params": []
+  },
+  {
+    "migration": "0009_team_roster.sql",
+    "sql": "INSERT INTO team_roster(id,season,source,category,name,coach1,coach2,managers) VALUES (1,'2026-2027','FIPAV','SERIE D','PVI NOVAVISION','FABIO','','MAURIZIO'),\n(2,'2026-2027','FIPAV','1 DIVISIONE','PVI BCC CANTU','MARIO','BARBARA','PATTY'),\n(3,'2026-2027','FIPAV','3 DIVISIONE','PVI ARDOR 2K','ANNA','','LUCIANO'),\n(4,'2026-2027','PGS','U21','PVI ARDOR2K/AROSIO','EMANUELE','','ANTONELLA'),\n(5,'2026-2027','FIPAV','U19','PVI STUDIO GALLI','FABIO','','MAURIZIO'),\n(6,'2026-2027','FIPAV','U19','PVI G-TEX','ANNA','','FRANCESCA'),\n(7,'2026-2027','FIPAV','U19','PVI 2010','DOZ','AURORA','VANESSA'),\n(8,'2026-2027','FIPAV','U17','PVI MIKKA','DOZ','AURORA','VANESSA'),\n(9,'2026-2027','FIPAV','U17','PVI PINUCCE','CRISTINA','MARCO','FEDERICO'),\n(10,'2026-2027','FIPAV','U17','P.V.I. SIGNORBIO','BARBARA','SABRINA','RUGGERO'),\n(11,'2026-2027','PGS','U17','PVI ARDOR 2K MARIANO 2013','SIMONE','','ELEONORA'),\n(12,'2026-2027','FIPAV','U15','PVI STUDIO OTTOLINA','CRISTINA','SIMONE','FEDERICO'),\n(13,'2026-2027','FIPAV','U15','PVI MOLINI LARIO','BARBARA','SABRINA','RUGGERO'),\n(14,'2026-2027','FIPAV','U14','PVI SIGMA','CRISTINA','','ELEONORA'),\n(15,'2026-2027','PGS','U14','PVI ARDOR 2K MARIANO BLU','SEVAN','','ELEONORA'),\n(16,'2026-2027','PGS','U14','PVI ARDOR 2K MARIANO ROSSA','DIEGO','SARA A.','CLARA'),\n(17,'2026-2027','FIPAV','U13','PVI INDUSTRIA TESSILE GASTALDI &C SPA','DIEGO','','SILVIA'),\n(18,'2026-2027','PGS','U13','PVI ARDOR 2K MARIANO','SARA A.','','CLARA'),\n(19,'2026-2027','PGS','U12','PVI ARDOR 2K MARIANO','ALICE','','ANGELICA'),\n(20,'2026-2027','PGS','U11','PVI ARDOR 2K MARIANO','ALICE','','ANGELICA'),\n(21,'2026-2027','PGS','U11','PVI ARDOR 2K GIUSSANO','PATTY','ELENA','PATTY');",
+    "params": []
+  },
+  {
+    "migration": "0009_team_roster.sql",
+    "sql": "UPDATE team_roster SET linked_team_id='FIPAV:229990' WHERE id=9;",
+    "params": []
+  },
+  {
+    "migration": "0009_team_roster.sql",
+    "sql": "UPDATE team_roster SET linked_team_id='FIPAV:229693' WHERE id=12;",
+    "params": []
+  },
+  {
+    "migration": "0009_team_roster.sql",
+    "sql": "UPDATE team_roster SET linked_team_id='PGS:6ab0ec072cf8134e0d68e749' WHERE id=21;",
+    "params": []
+  },
+  {
+    "migration": "0009_team_roster.sql",
+    "sql": "UPDATE teams SET coach1='CRISTINA',coach2='MARCO',managers='FEDERICO' WHERE id='FIPAV:229990' AND coach1='' AND coach2='' AND managers='';",
+    "params": []
+  },
+  {
+    "migration": "0009_team_roster.sql",
+    "sql": "UPDATE teams SET coach1='CRISTINA',coach2='SIMONE',managers='FEDERICO' WHERE id='FIPAV:229693' AND coach1='' AND coach2='' AND managers='';",
+    "params": []
+  },
+  {
+    "migration": "0009_team_roster.sql",
+    "sql": "UPDATE teams SET coach1='PATTY',coach2='ELENA',managers='PATTY' WHERE id='PGS:6ab0ec072cf8134e0d68e749' AND coach1='' AND coach2='' AND managers='';",
+    "params": []
+  },
+  {
+    "migration": "0009_team_roster.sql",
+    "sql": "INSERT INTO schema_migrations VALUES(9,strftime('%Y-%m-%dT%H:%M:%fZ','now'));",
+    "params": []
   }
 ]
