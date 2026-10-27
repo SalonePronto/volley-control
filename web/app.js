@@ -109,6 +109,28 @@ async function api(path, data) {
   if (!res.ok) throw new Error(result.error || 'Operazione non riuscita.');
   return result;
 }
+// PATTY: rinnovo discreto solo mentre l'organizzatore usa l'app.
+let lastPattyActivity = Date.now();
+for (const eventName of ['pointerdown', 'keydown', 'scroll']) {
+  document.addEventListener(eventName, () => { lastPattyActivity = Date.now(); }, { passive: true });
+}
+async function renewActivePattySession() {
+  if (!state.user?.admin || document.hidden ||
+      Date.now() - lastPattyActivity > 15 * 60 * 1000) return;
+  try {
+    const me = await api('me');
+    if (!me.user?.admin) {
+      state.user = null;
+      state.csrf = null;
+      state.admin = null;
+      render();
+    }
+  } catch {
+    // Nessun messaggio invasivo: la prossima operazione verificherà l'accesso.
+  }
+}
+// Controllo leggero ogni cinque minuti; il server scrive solo vicino alla scadenza.
+setInterval(renewActivePattySession, 5 * 60 * 1000);
 // Eventi reali: nessun controllo a intervalli del database.
 let liveSocket = null, liveRetryTimer = null, liveRetryCount = 0;
 let liveRefreshing = false, livePending = false;
@@ -174,7 +196,10 @@ document.addEventListener('visibilitychange', () => {
   else { refreshLiveCalendar(); connectLive(); }
 });
 window.addEventListener('focus', () => {
-  if (!document.hidden) refreshLiveCalendar();
+  if (!document.hidden) {
+    renewActivePattySession();
+    refreshLiveCalendar();
+  }
 });
 async function load() {
   const [me, c] = await Promise.all([api('me'), api('calendar')]);
