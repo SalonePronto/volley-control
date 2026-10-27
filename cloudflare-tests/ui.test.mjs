@@ -310,3 +310,15 @@ test('PATTY attiva e disattiva le due spunte federali nella scheda partita',asyn
   assert.ok(u.w.document.querySelector('#games .dot.missing'));
  }finally{u.dom.window.close();u.db.close();}
 });
+
+test('PATTY mostra registrati senza salvataggio o modifica dei ruoli',async()=>{
+ const u=await setup();
+ try {
+   await statement(u.db,'INSERT INTO people(id,email,first_name,last_name,password_hash,wants_referee,wants_scorer,approved,created_at) VALUES(?,?,?,?,?,?,?,?,?)','TEST-access','access@invalid.example','TEST','ACCESS','testhash',1,0,1,new Date().toISOString()).run();
+   await u.start();await u.click('#patty');await u.submit('form[data-form="login"]',{password});
+   assert.equal(u.w.document.querySelector('form[data-form="person"]'),null);
+   assert.doesNotMatch(u.w.document.querySelector('#admin').textContent,/Salva ruoli/);
+   assert.match(u.w.document.querySelector('#admin').textContent,/TEST ACCESS/);
+   assert.ok(u.w.document.querySelector('[data-person-access="TEST-access"]'));
+ }finally{u.dom.window.close();u.db.close();}
+});

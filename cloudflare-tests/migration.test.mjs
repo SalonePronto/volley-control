@@ -902,3 +902,23 @@ test('Incarichi fissi non sovrascrivono il federale',async()=>{
  assert.equal((await statement(db,'SELECT count(*) n FROM assignments').first()).n,0);
  db.close();
 });
+
+test('PATTY disattiva/riattiva senza modificare i ruoli',async()=>{
+ const db=new LocalD1(),env=envFor(db),id=await addPerson(db,'TEST-ACCESS');
+ const admin=await loginAdmin(env), user=await userSession(db,id);
+ const before=await statement(db,'SELECT * FROM people WHERE id=?',id).first();
+ let r=await call(env,'admin/person',{id,approved:false,wants_referee:false},admin);
+ assert.equal(r.status,400);
+ r=await call(env,'admin/person',{id,approved:false},admin);
+ assert.equal(r.status,200);
+ const me=await worker.fetch(new Request('https://test.invalid/api/me',{headers:{Cookie:user.cookie}}),env);
+ assert.equal((await me.json()).user,null);
+ r=await call(env,'admin/person',{id,approved:true},admin);
+ assert.equal(r.status,200);
+ const after=await statement(db,'SELECT * FROM people WHERE id=?',id).first();
+ assert.equal(after.approved,1);
+ assert.equal(after.wants_referee,before.wants_referee);
+ assert.equal(after.wants_scorer,before.wants_scorer);
+ assert.equal((await statement(db,'SELECT count(*) n FROM sessions WHERE person_id=?',id).first()).n,0);
+ db.close();
+});

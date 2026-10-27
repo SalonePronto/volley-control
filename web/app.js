@@ -372,14 +372,18 @@ function renderAdmin() {
   html += `<details><summary>Codice PATTY · 4 caratteri ${state.patty_pin_set ? '(attivo)' : '(da impostare)'}</summary><p class="notice">Salva il codice: al prossimo accesso sostituirà la password precedente.</p><form data-form="patty-pin">${codeField('Nuovo codice PATTY', 'pin')}${codeField('Ripeti il codice', 'confirm')}<button>Salva codice PATTY</button></form></details>`;
   html += `<details ${pending.length ? 'open' : ''}><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><form data-form="pending" data-key="${esc(g.game_key)}"><div class="grid">${field('Data confermata', 'date', g.date || '', 'date', true)}${field('Ora confermata', 'time', g.time || '', 'time', true)}</div>${field('Motivo / riferimento', 'reason')}<button>Salva e inserisci nel calendario</button></form></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
   html +=
-    '<details><summary>Persone · Accesso e ruoli</summary>' +
-    a.people
-      .map(
-        (p) =>
-          `<div class="person"><b>${esc(p.first_name + ' ' + p.last_name)}</b><form data-form="person" data-id="${esc(p.id)}"><div class="checks">${check('Attivo', 'approved', p.approved)}${check('Arbitro', 'wants_referee', p.wants_referee)}${check('Refertista', 'wants_scorer', p.wants_scorer)}${check('Dirigente', 'wants_manager', p.wants_manager)}${check('Allenatore', 'wants_coach', p.wants_coach)}</div><button>Salva ruoli</button></form></div>`,
-      )
-      .join('') +
-    '</details>';
+    '<details><summary>Persone registrate (' + a.people.length + ')</summary>' +
+    (a.people.map((p) => {
+      const roles = [
+        ['wants_referee', 'Arbitro'], ['wants_scorer', 'Refertista'],
+        ['wants_manager', 'Dirigente'], ['wants_coach', 'Allenatore']
+      ].filter(([key]) => p[key]).map(([, label]) => label).join(', ') || 'Nessun ruolo';
+      return `<div class="person"><b>${esc(p.first_name + ' ' + p.last_name)}</b>
+        <p class="notice">${esc(roles)} · ${p.approved ? 'Attivo' : 'Disattivato'}</p>
+        <button type="button" data-person-access="${esc(p.id)}"
+          data-approved="${p.approved ? 'false' : 'true'}">${p.approved ? 'Disattiva account' : 'Riattiva account'}</button>
+      </div>`;
+    }).join('') || '<p>Nessuna persona registrata.</p>') + '</details>';
   html +=
     '<details><summary>Squadre · Staff · Nomi brevi · Incarichi FISSI</summary>' +
     a.teams
@@ -546,16 +550,6 @@ async function submit(f) {
       if (r.game.date) state.week = weekOf(r.game.date);
       break;
     }
-    case 'person':
-      await api('admin/person', {
-        id: f.dataset.id,
-        approved: !!b.approved,
-        wants_referee: !!b.wants_referee,
-        wants_scorer: !!b.wants_scorer,
-        wants_manager: !!b.wants_manager,
-        wants_coach: !!b.wants_coach,
-      });
-      break;
     case 'team':
       await api('admin/team', { ...b, id: f.dataset.id || undefined, active: !!b.active });
       break;
@@ -681,6 +675,13 @@ document.addEventListener('click', async (e) => {
       await load();
       await showGame(b.dataset.game);
       notice(b.dataset.action === 'book' ? 'Prenotazione confermata.' : 'Prenotazione annullata.', true);
+    } else if (b.hasAttribute('data-person-access')) {
+      const approved = b.dataset.approved === 'true';
+      if (!confirm('Vuoi ' + (approved ? 'riattivare' : 'disattivare') + ' questo account?')) return;
+      b.disabled = true;
+      await api('admin/person', { id: b.dataset.personAccess, approved });
+      await load();
+      notice(approved ? 'Account riattivato.' : 'Account disattivato.');
     } else if (b.dataset.sync) await syncAll(b.dataset.sync === 'results');
     else if (b.dataset.reset) {
       await api('admin/override/reset', { game_key: b.dataset.game, field: b.dataset.reset });

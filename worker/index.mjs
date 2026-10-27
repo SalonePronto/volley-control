@@ -14,7 +14,7 @@ import {
   validateTeam,
   EDITABLE,
 } from './domain.mjs';
-export const RELEASE = 'cf-staging-2026-10-27.8';
+export const RELEASE = 'cf-staging-2026-10-27.9';
 const enc = new TextEncoder();
 const hex = (buffer) =>
   Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -957,36 +957,18 @@ async function route(req, env) {
     });
   if (path === '/api/admin/person' && req.method === 'POST') {
     const b = await body(req);
-    if (
-      typeof b.approved !== 'boolean' ||
-      typeof b.wants_referee !== 'boolean' ||
-      typeof b.wants_scorer !== 'boolean' ||
-      typeof b.wants_manager !== 'boolean' ||
-      typeof b.wants_coach !== 'boolean'
-    )
-      fail('Abilitazioni non valide.');
+    if (!b || Object.keys(b).sort().join(',') !== 'approved,id' ||
+        typeof b.approved !== 'boolean' || typeof b.id !== 'string' || !b.id)
+      fail('PATTY può soltanto attivare o disattivare un account.', 400);
+    const person = await one(env.DB, 'SELECT id,approved FROM people WHERE id=?', b.id);
+    if (!person) fail('Utente non trovato.', 404);
+    if (!!person.approved === b.approved) return json({ ok: true, approved: b.approved });
     await env.DB.batch([
-      statement(
-        env.DB,
-        'UPDATE people SET approved=?,wants_referee=?,wants_scorer=?,wants_manager=?,wants_coach=? WHERE id=?',
-        +b.approved,
-        +b.wants_referee,
-        +b.wants_scorer,
-        +b.wants_manager,
-        +b.wants_coach,
-        b.id,
-      ),
-      statement(env.DB, 'DELETE FROM sessions WHERE person_id=?', b.id),
-      audit(env.DB, actor, 'person_authorization', null, {
-        id: b.id,
-        approved: b.approved,
-        referee: b.wants_referee,
-        scorer: b.wants_scorer,
-        manager: b.wants_manager,
-        coach: b.wants_coach,
-      }),
+      statement(env.DB, 'UPDATE people SET approved=? WHERE id=?', +b.approved, b.id),
+      ...(b.approved ? [] : [statement(env.DB, 'DELETE FROM sessions WHERE person_id=?', b.id)]),
+      audit(env.DB, actor, 'person_access_changed', null, { id: b.id, approved: b.approved }),
     ]);
-    return json({ ok: true });
+    return json({ ok: true, approved: b.approved });
   }
   if (path === '/api/admin/team' && req.method === 'POST') {
     const b = await body(req),
@@ -1256,7 +1238,7 @@ export default {
       (['/api/book', '/api/cancel', '/api/admin/assign',
         '/api/admin/fixed', '/api/admin/fixed/apply',
         '/api/admin/game', '/api/admin/override/reset',
-        '/api/admin/manual', '/api/admin/team'].includes(path) ||
+        '/api/admin/manual', '/api/admin/team', '/api/admin/person'].includes(path) ||
         path.startsWith('/api/admin/sync/'))
     ) {
       ctx.waitUntil(
