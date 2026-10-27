@@ -161,10 +161,29 @@ test('frontend → API: login personale, Mi prenoto, nominativo e annullamento',
     await u.click('[data-open]');
     assert.equal(u.w.document.querySelector('[data-book]').disabled, false);
     await u.click('[data-book][data-role="referee"]');
+    assert.match(
+      u.w.document.querySelector('#action-confirmation').textContent,
+      /Ti stai prenotando per questa partita/,
+    );
+    assert.equal((await statement(u.db, 'SELECT count(*) n FROM assignments').first()).n, 0);
+    assert.equal(u.w.document.querySelectorAll('#action-confirmation img').length, 0);
+    await u.click('[data-abort-action]');
+    assert.equal((await statement(u.db, 'SELECT count(*) n FROM assignments').first()).n, 0);
+    await u.click('[data-book][data-role="referee"]');
+    await u.click('[data-confirm-action]');
     assert.equal((await statement(u.db, 'SELECT count(*) n FROM assignments').first()).n, 1);
     assert.match(u.w.document.querySelector('#dialog-content').textContent, /TEST UTENTE/);
     assert.ok(u.w.document.querySelector('#games .mobile .dot.covered'));
     await u.click('[data-cancel]');
+    assert.match(
+      u.w.document.querySelector('#action-confirmation').textContent,
+      /Stai annullando la tua prenotazione per questa partita/,
+    );
+    assert.equal((await statement(u.db, 'SELECT count(*) n FROM assignments').first()).n, 1);
+    await u.click('[data-abort-action]');
+    assert.equal((await statement(u.db, 'SELECT count(*) n FROM assignments').first()).n, 1);
+    await u.click('[data-cancel]');
+    await u.click('[data-confirm-action]');
     assert.equal((await statement(u.db, 'SELECT count(*) n FROM assignments').first()).n, 0);
     assert.equal(u.w.document.querySelectorAll('#games .mobile .dot.missing').length, 2);
   } finally {

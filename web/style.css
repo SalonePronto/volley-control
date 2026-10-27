@@ -607,3 +607,15 @@ form {
     display: none;
   }
 }
+
+/* Conferma esplicita per prenotazione, annullamento e rimozione incarichi. */
+.action-confirmation {
+  margin: 0 0 16px;
+  padding: 16px;
+  border: 2px solid #e4a63a;
+  border-radius: 12px;
+  background: #fff9e8;
+}
+.action-confirmation h3 { margin: 0 0 8px; }
+.action-confirmation p { margin: 8px 0; }
+.action-confirmation .actions button { min-height: 40px; }

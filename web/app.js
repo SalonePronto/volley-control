@@ -538,15 +538,44 @@ document.addEventListener('click', async (e) => {
       } else access(true);
     } else if (b.dataset.open) await showGame(b.dataset.open);
     else if (b.hasAttribute('data-book') || b.hasAttribute('data-cancel')) {
+      const booking = b.hasAttribute('data-book');
+      const g =
+        state.games.find((g) => g.game_key === b.dataset.game) ||
+        state.admin?.games.find((g) => g.game_key === b.dataset.game);
+      if (!g) throw new Error('Partita non trovata. Riapri la scheda.');
+      $('#action-confirmation')?.remove();
+      const panel = document.createElement('section');
+      panel.id = 'action-confirmation';
+      panel.className = 'action-confirmation';
+      panel.setAttribute('role', 'alertdialog');
+      panel.setAttribute('aria-labelledby', 'action-confirmation-title');
+      const message = booking
+        ? 'Ti stai prenotando per questa partita'
+        : state.user?.admin
+          ? 'Stai rimuovendo questo incarico da questa partita'
+          : 'Stai annullando la tua prenotazione per questa partita';
+      const attrs = `data-game="${esc(b.dataset.game)}" data-role="${esc(b.dataset.role)}" data-slot="${esc(b.dataset.slot)}"`;
+      panel.innerHTML = `<h3 id="action-confirmation-title">${message}</h3>
+        <p><strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></p>
+        <p>${esc(g.date || 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(ROLES[b.dataset.role] || 'Incarico')}</p>
+        <div class="actions">
+          <button type="button" class="primary" data-confirm-action data-action="${booking ? 'book' : 'cancel'}" ${attrs}>Conferma</button>
+          <button type="button" data-abort-action>Indietro</button>
+        </div>`;
+      $('#dialog-content').prepend(panel);
+      panel.querySelector('[data-confirm-action]').focus();
+    } else if (b.hasAttribute('data-abort-action')) {
+      $('#action-confirmation')?.remove();
+    } else if (b.hasAttribute('data-confirm-action')) {
       b.disabled = true;
-      await api(b.hasAttribute('data-book') ? 'book' : 'cancel', {
+      await api(b.dataset.action, {
         game_key: b.dataset.game,
         role: b.dataset.role,
         slot: Number(b.dataset.slot),
       });
       await load();
       await showGame(b.dataset.game);
-      notice('Operazione salvata.', true);
+      notice(b.dataset.action === 'book' ? 'Prenotazione confermata.' : 'Prenotazione annullata.', true);
     } else if (b.dataset.sync) await syncAll(b.dataset.sync === 'results');
     else if (b.dataset.reset) {
       await api('admin/override/reset', { game_key: b.dataset.game, field: b.dataset.reset });

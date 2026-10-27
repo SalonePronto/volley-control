@@ -14,7 +14,7 @@ import {
   validateTeam,
   EDITABLE,
 } from './domain.mjs';
-export const RELEASE = 'cf-staging-2026-10-27.2';
+export const RELEASE = 'cf-staging-2026-10-27.3';
 const enc = new TextEncoder();
 const hex = (buffer) =>
   Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
