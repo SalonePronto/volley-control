@@ -14,13 +14,18 @@ import {
   validateTeam,
   EDITABLE,
 } from './domain.mjs';
-export const RELEASE = 'cf-staging-2026-10-27.3';
+export const RELEASE = 'cf-staging-2026-10-27.4';
 const enc = new TextEncoder();
 const hex = (buffer) =>
   Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
 const fromHex = (s) => Uint8Array.from(s.match(/../g) || [], (x) => parseInt(x, 16));
 export const random = () => hex(crypto.getRandomValues(new Uint8Array(32)));
 export const sha = async (v) => hex(await crypto.subtle.digest('SHA-256', enc.encode(v)));
+async function identityKey(first, last) {
+  const norm = (v) => clean(v).normalize('NFKC').replace(/\s+/g, ' ').toLocaleLowerCase('it');
+  return (await sha(JSON.stringify([norm(first), norm(last)]))) + '@example.invalid';
+}
+const validCode = (v) => typeof v === 'string' && /^[A-Za-z0-9]{4}$/.test(v);
 export function equal(a, b) {
   const x = enc.encode(a || ''),
     y = enc.encode(b || '');
@@ -42,8 +47,8 @@ async function peppered(password, pepper) {
 // WebCrypto Workers supports at most 100000 PBKDF2 iterations. A separate secret
 // pepper protects a stolen D1 export; never store it beside password records.
 export async function passwordHash(password, pepper, salt = random().slice(0, 32)) {
-  if (typeof password !== 'string' || password.length < 12 || password.length > 256)
-    fail('La password deve avere da 12 a 256 caratteri.');
+  if (typeof password !== 'string' || password.length < 4 || password.length > 256)
+    fail('Il codice deve avere almeno 4 caratteri.');
   const k = await crypto.subtle.importKey(
     'raw',
     await peppered(password, pepper),
@@ -737,6 +742,7 @@ async function route(req, env) {
         : null,
       csrf: s?.csrf || null,
       registration_enabled: env.REGISTRATION_ENABLED === 'true',
+      patty_pin_set: !!(await one(env.DB, "SELECT value FROM settings WHERE key='patty_pin_hash'")),
       staging: env.ENVIRONMENT !== 'production',
     });
   if (path === '/api/calendar' && req.method === 'GET') {
@@ -745,42 +751,26 @@ async function route(req, env) {
     return json(data);
   }
   if (path === '/api/auth/register' && req.method === 'POST') {
-    if (env.REGISTRATION_ENABLED !== 'true') fail('Registrazioni reali non ancora aperte.', 403);
+    if (env.REGISTRATION_ENABLED !== 'true') fail('Registrazioni non ancora aperte.', 403);
     await throttle(env, req, 'register', 5);
     const b = await body(req);
     if (!b.staging_consent && env.ENVIRONMENT !== 'production')
       fail('Usare solo dati fittizi in questo ambiente di prova.');
-    const email = clean(b.email).toLowerCase(),
-      first = clean(b.first_name),
-      last = clean(b.last_name);
-    if (
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-      email.length > 254 ||
-      !first ||
-      !last ||
-      first.length > 120 ||
-      last.length > 120 ||
-      (!b.wants_referee && !b.wants_scorer)
-    )
-      fail('Inserisci nome, cognome, email e almeno un ruolo.');
-    if (env.ENVIRONMENT !== 'production' && !email.endsWith('@example.invalid'))
-      fail('Per il collaudo usa un indirizzo @example.invalid.');
+    const first = clean(b.first_name), last = clean(b.last_name);
+    if (!first || !last || first.length > 120 || last.length > 120 || (!b.wants_referee && !b.wants_scorer))
+      fail('Inserisci nome, cognome e almeno un ruolo.');
+    if (!validCode(b.password)) fail('Codice di 4 caratteri, solo lettere o numeri.');
+    const key = await identityKey(first, last);
     const pwd = await passwordHash(b.password, env.PASSWORD_PEPPER);
     try {
       await statement(
         env.DB,
         'INSERT INTO people(id,email,first_name,last_name,password_hash,wants_referee,wants_scorer,created_at) VALUES(?,?,?,?,?,?,?,?)',
-        crypto.randomUUID(),
-        email,
-        first,
-        last,
-        pwd,
-        b.wants_referee ? 1 : 0,
-        b.wants_scorer ? 1 : 0,
-        at(),
+        crypto.randomUUID(), key, first, last, pwd,
+        b.wants_referee ? 1 : 0, b.wants_scorer ? 1 : 0, at(),
       ).run();
     } catch {
-      fail('Email già registrata o dati non validi.', 409);
+      fail('Nome e cognome già registrati: chiedi a PATTY come distinguere due omonimi.', 409);
     }
     return json({ ok: true, message: 'Richiesta inviata. Attendi l’approvazione PATTY.' }, 201);
   }
@@ -788,20 +778,20 @@ async function route(req, env) {
     await throttle(env, req, 'login');
     const b = await body(req);
     if (b.admin) {
-      if (!env.PATTY_HASH) fail('Accesso PATTY non ancora configurato.', 503);
-      if (!(await verifyPassword(b.password, env.PATTY_HASH, env.PASSWORD_PEPPER)))
-        fail('Credenziali non corrette.', 401);
+      const pin = await one(env.DB, "SELECT value FROM settings WHERE key='patty_pin_hash'");
+      if (!pin && !env.PATTY_HASH) fail('Accesso PATTY non ancora configurato.', 503);
+      if (!(await verifyPassword(b.password, pin?.value || env.PATTY_HASH, env.PASSWORD_PEPPER)))
+        fail('Codice PATTY non corretto.', 401);
       return sessionReply(env, null, true);
     }
-    const p = await one(env.DB, 'SELECT * FROM people WHERE email=?', clean(b.email).toLowerCase());
-    const valid = await verifyPassword(
-      b.password,
-      p?.password_hash || env.PATTY_HASH || '',
-      env.PASSWORD_PEPPER,
-    );
-    if (!p || !valid) fail('Credenziali non corrette.', 401);
-    if (!p.approved) fail('In attesa di approvazione da PATTY.', 403);
-    return sessionReply(env, p.id, false);
+    const first = clean(b.first_name), last = clean(b.last_name);
+    if (!first || !last) fail('Inserisci nome, cognome e codice.');
+    const key = await identityKey(first, last);
+    const person = await one(env.DB, 'SELECT * FROM people WHERE email=?', key);
+    const valid = await verifyPassword(b.password, person?.password_hash || env.PATTY_HASH || '', env.PASSWORD_PEPPER);
+    if (!person || !valid) fail('Nome, cognome o codice non corretti.', 401);
+    if (!person.approved) fail('In attesa di approvazione da PATTY.', 403);
+    return sessionReply(env, person.id, false);
   }
   if (path === '/api/auth/logout' && req.method === 'POST') {
     csrf(req, s);
@@ -878,12 +868,24 @@ async function route(req, env) {
     return json({ ok: true });
   }
   admin(s);
+  if (path === '/api/admin/pin' && req.method === 'POST') {
+    const b = await body(req);
+    if (!validCode(b.pin) || b.pin !== b.confirm)
+      fail('Ripeti lo stesso codice PATTY di 4 caratteri.');
+    const hashed = await passwordHash(b.pin, env.PASSWORD_PEPPER);
+    await env.DB.batch([
+      statement(env.DB, "INSERT INTO settings(key,value) VALUES('patty_pin_hash',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", hashed),
+      statement(env.DB, 'DELETE FROM sessions WHERE admin=1 AND token_hash<>?', s.token_hash),
+      audit(env.DB, actor, 'patty_pin_changed', null, {}),
+    ]);
+    return json({ ok: true });
+  }
   if (path === '/api/admin/state' && req.method === 'GET')
     return json({
       ...(await calendar(env.DB)),
       people: await all(
         env.DB,
-        'SELECT id,email,first_name,last_name,wants_referee,wants_scorer,approved,created_at FROM people ORDER BY last_name,first_name',
+        'SELECT id,first_name,last_name,wants_referee,wants_scorer,approved,created_at FROM people ORDER BY last_name,first_name',
       ),
       fixed: await all(env.DB, 'SELECT * FROM team_fixed'),
       sync: await all(env.DB, 'SELECT * FROM sync_runs'),

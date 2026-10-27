@@ -205,10 +205,17 @@ const select = (label, name, options, value = '') =>
   `<label class="field">${esc(label)}<select name="${name}">${options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(value) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
 const check = (label, name, on = false) =>
   `<label><input type="checkbox" name="${name}" ${on ? 'checked' : ''}> ${esc(label)}</label>`;
+const codeField = (label, name) =>
+  `<label class="field">${esc(label)}<input name="${esc(name)}" type="password" minlength="4" maxlength="4" pattern="[A-Za-z0-9]{4}" autocomplete="off" autocapitalize="off" required></label>`;
 function access(admin = false) {
+  const names = field('Nome', 'first_name', '', 'text', true) +
+    field('Cognome', 'last_name', '', 'text', true);
+  const credentials = admin
+    ? (state.patty_pin_set ? codeField('Codice PATTY (4 caratteri)', 'password') : field('Password PATTY attuale', 'password', '', 'password', true))
+    : names + codeField('Codice personale (4 caratteri)', 'password');
   modal(
     admin ? 'PATTY · Accesso organizzatore' : 'Arbitri e refertisti · Accesso',
-    `<form data-form="login" data-admin="${admin}">${admin ? '' : field('Email', 'email', '', 'email', true)}${field('Password', 'password', '', 'password', true)}<button class="primary">Accedi</button></form>${!admin && state.registration_enabled ? `<details><summary>Prima registrazione · Solo collaudo</summary><p class="notice">Usa esclusivamente nominativi fittizi e indirizzi @example.invalid. Non inserire dati di persone reali.</p><form data-form="register">${field('Nome', 'first_name', '', 'text', true)}${field('Cognome', 'last_name', '', 'text', true)}${field('Email di prova', 'email', '', 'email', true)}${field('Password (almeno 12 caratteri)', 'password', '', 'password', true)}<div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}</div><label>${check('Confermo che sono dati fittizi', 'staging_consent')}</label><div class="actions"><button>Richiedi registrazione</button></div></form></details>` : !admin ? '<p class="notice">Registrazioni non ancora aperte in questo ambiente.</p>' : ''}`,
+    `<form data-form="login" data-admin="${admin}">${credentials}<button class="primary">Accedi</button></form>${!admin && state.registration_enabled ? `<details><summary>Prima registrazione · Solo collaudo</summary><p class="notice">Usa soltanto nome e cognome inventati. Nessuna email.</p><form data-form="register">${names}${codeField('Codice di 4 caratteri', 'password')}<div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}</div><label>${check('Confermo che sono dati fittizi', 'staging_consent')}</label><div class="actions"><button>Richiedi registrazione</button></div></form></details>` : !admin ? '<p class="notice">Registrazioni non ancora aperte in questo ambiente.</p>' : ''}`,
   );
 }
 async function showGame(key) {
@@ -287,13 +294,14 @@ function renderAdmin() {
   if (!a) return;
   const pending = a.games.filter((g) => !g.date || !g.time);
   let html = `<h2>PATTY · Comandi riservati</h2><div class="actions"><button data-sync="calendar" class="primary">↻ Aggiorna tutti i calendari</button><button data-sync="results">↻ Aggiorna tutti i risultati</button></div><p class="notice">Aggiorna tutte le squadre attive. Le gare non vengono duplicate; le correzioni manuali e le prenotazioni sono conservate.</p>`;
+  html += `<details><summary>Codice PATTY · 4 caratteri ${state.patty_pin_set ? '(attivo)' : '(da impostare)'}</summary><p class="notice">Salva il codice: al prossimo accesso sostituirà la password precedente.</p><form data-form="patty-pin">${codeField('Nuovo codice PATTY', 'pin')}${codeField('Ripeti il codice', 'confirm')}<button>Salva codice PATTY</button></form></details>`;
   html += `<details ${pending.length ? 'open' : ''}><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><form data-form="pending" data-key="${esc(g.game_key)}"><div class="grid">${field('Data confermata', 'date', g.date || '', 'date', true)}${field('Ora confermata', 'time', g.time || '', 'time', true)}</div>${field('Motivo / riferimento', 'reason')}<button>Salva e inserisci nel calendario</button></form></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
   html +=
     '<details><summary>Persone · Approvazioni e abilitazioni</summary>' +
     a.people
       .map(
         (p) =>
-          `<div class="person"><b>${esc(p.first_name + ' ' + p.last_name)}</b> · ${esc(p.email)}<form data-form="person" data-id="${esc(p.id)}"><div class="checks">${check('Approvato', 'approved', p.approved)}${check('Arbitro', 'wants_referee', p.wants_referee)}${check('Refertista', 'wants_scorer', p.wants_scorer)}</div><button>Salva abilitazioni</button></form></div>`,
+          `<div class="person"><b>${esc(p.first_name + ' ' + p.last_name)}</b><form data-form="person" data-id="${esc(p.id)}"><div class="checks">${check('Approvato', 'approved', p.approved)}${check('Arbitro', 'wants_referee', p.wants_referee)}${check('Refertista', 'wants_scorer', p.wants_scorer)}</div><button>Salva abilitazioni</button></form></div>`,
       )
       .join('') +
     '</details>';
@@ -408,6 +416,12 @@ async function submit(f) {
       });
       notice('Richiesta inviata. Attendi l’approvazione PATTY.', true);
       f.reset();
+      return;
+    case 'patty-pin':
+      await api('admin/pin', { pin: b.pin, confirm: b.confirm });
+      f.reset();
+      await load();
+      notice('Codice PATTY aggiornato. Usalo al prossimo accesso.');
       return;
     case 'pending': {
       const r = await api('admin/game', {
