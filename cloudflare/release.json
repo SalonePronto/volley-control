@@ -1,8 +1,8 @@
 {
   "application": "VOLLEY CONTROL",
   "environment": "staging",
-  "release": "cf-staging-2026-10-27.6",
-  "source_base_commit": "b80c769888ccb2e86bd3493fe6dcbf6b383c7e1e",
+  "release": "cf-staging-2026-10-27.7",
+  "source_base_commit": "612d31540cc568c256dbb2e9224ca4ae33e9c429",
   "target_worker": "volley-control-dev",
   "target_database": "volley-control-dev-db",
   "account_id": "be2a6531623a2d7500aabcf3a6efe5ce",
@@ -11,8 +11,8 @@
   "worker": {
     "path": "cloudflare/worker.mjs",
     "main_module": "worker.mjs",
-    "sha256": "404f40ff63253b3b22604b1aa870351bff582d6f5b70b0de26dcc83c9c20afbf",
-    "bytes": 100017
+    "sha256": "de410e801564c11d3a10aec2733f111ddb003bd518b2bc63390b9803ed9d073a",
+    "bytes": 104894
   },
   "schema": {
     "path": "cloudflare/schema.sql",
@@ -91,6 +91,18 @@
       "name": "PATTY_HASH",
       "type": "secret_text",
       "value": "DA_CONFIGURARE_CON_CANALE_SICURO"
+    },
+    {
+      "name": "LIVE_SYNC",
+      "type": "durable_object_namespace",
+      "class_name": "VolleyLiveSync"
     }
-  ]
+  ],
+  "realtime": {
+    "transport": "durable_object_websocket_hibernation",
+    "binding": "LIVE_SYNC",
+    "class_name": "VolleyLiveSync",
+    "storage": "sqlite",
+    "enabled_on_staging": true
+  }
 }
