@@ -115,6 +115,9 @@ async function body(req) {
 // Riconoscimento continuo sullo stesso dispositivo, fino a Esci o revoca PATTY.
 // I browser possono limitare i cookie a 400 giorni: li rinnoviamo a ogni apertura.
 const PERSONAL_COOKIE_SECONDS = 400 * 24 * 60 * 60;
+// PATTY: scadenza mobile, rinnovata dall'attività reale nell'app.
+const PATTY_SESSION_MS = 30 * 60 * 1000;
+const PATTY_RENEW_WINDOW_MS = 15 * 60 * 1000;
 const PERSONAL_SESSION_EXPIRES = 253402300799000; // fine anno 9999
 const sessionCookie = (token, seconds) =>
   `__Host-vc=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${seconds}`;
@@ -157,7 +160,7 @@ async function throttle(env, req, label, max = 8) {
 async function sessionReply(env, person_id, isAdmin) {
   const token = random(),
     csrfToken = random();
-  const expires = isAdmin ? Date.now() + 1800000 : PERSONAL_SESSION_EXPIRES;
+  const expires = isAdmin ? Date.now() + PATTY_SESSION_MS : PERSONAL_SESSION_EXPIRES;
   await env.DB.batch([
     statement(env.DB, 'DELETE FROM sessions WHERE expires_at<?', Date.now()),
     statement(env.DB, 'DELETE FROM attempts WHERE expires_at<?', Date.now()),
@@ -172,7 +175,7 @@ async function sessionReply(env, person_id, isAdmin) {
     ),
   ]);
   return json({ ok: true, csrf: csrfToken, admin: isAdmin }, 200, {
-    'Set-Cookie': sessionCookie(token, isAdmin ? 1800 : PERSONAL_COOKIE_SECONDS),
+    'Set-Cookie': sessionCookie(token, isAdmin ? PATTY_SESSION_MS / 1000 : PERSONAL_COOKIE_SECONDS),
   });
 }
 export function gameValues(g, scope, official, overrides = {}, sourceMissing = 0) {
@@ -793,7 +796,22 @@ async function route(req, env) {
   }
   if (path === '/api/me' && req.method === 'GET') {
     const headers = {};
-    if (s && !s.admin) {
+    if (s?.admin) {
+      // Rinnovo durante l'uso: nessuna scadenza fissa dall'ultimo login.
+      // Aggiornare D1 soltanto nella seconda metà dei 30 minuti.
+      const now = Date.now();
+      if (s.expires_at - now <= PATTY_RENEW_WINDOW_MS) {
+        await statement(
+          env.DB,
+          'UPDATE sessions SET expires_at=? WHERE token_hash=? AND admin=1 AND expires_at>? AND expires_at<?',
+          now + PATTY_SESSION_MS,
+          s.token_hash,
+          now,
+          now + PATTY_SESSION_MS,
+        ).run();
+      }
+      headers['Set-Cookie'] = sessionCookie(sessionToken(req), PATTY_SESSION_MS / 1000);
+    } else if (s) {
       // Converte anche le vecchie sessioni di 8 ore, se non sono scadute.
       if (s.expires_at !== PERSONAL_SESSION_EXPIRES)
         await statement(
