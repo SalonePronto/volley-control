@@ -697,8 +697,10 @@ document.addEventListener('click', async (e) => {
       b.disabled=true;
       const result=await api('admin/roster/pgs-search',{});
       await load();
-      notice('PGS: ' + result.linked.length + ' collegate; ' +
-        result.pending.length + ' ancora da verificare.');
+      notice('PGS: ' + result.linked.length + ' nuove squadre collegate; ' +
+        result.pending.length + ' ancora da verificare.' +
+        (result.pending.length ? ' ' + result.pending.map(x =>
+          x.name + ' (' + x.reason + ')').join('; ') : ''));
     } else if (b.hasAttribute('data-person-access')) {
       const approved = b.dataset.approved === 'true';
       if (!confirm('Vuoi ' + (approved ? 'riattivare' : 'disattivare') + ' questo account?')) return;

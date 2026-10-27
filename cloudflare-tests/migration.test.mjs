@@ -941,3 +941,54 @@ test('Archivio da 21 schede: identità distinte U13/U12 e staff condiviso',async
  assert.equal((await statement(db,'SELECT linked_team_id FROM team_roster WHERE id=19').first()).linked_team_id,null);
  db.close();
 });
+
+test('PGS: riconoscimento U21F/U17F/U14F/U13F senza confondere maschile e femminile',async()=>{
+ const db=new LocalD1(),env=envFor(db),patty=await loginAdmin(env);
+ const official=[
+  {id:'OFF-U21F',nomeSquadra:'PVI ARDOR2K/AROSIO',categoria:'U21F',girone:'2'},
+  {id:'OFF-U21M',nomeSquadra:'PVI ARDOR2K/AROSIO',categoria:'U21M',girone:'2'},
+  {id:'OFF-U17F',nomeSquadra:'PVI ARDOR 2K MARIANO 2013',categoria:'U17F',girone:'3'},
+  {id:'OFF-U14F-B',nomeSquadra:'PVI ARDOR 2K MARIANO BLU',categoria:'U14F',girone:'2'},
+  {id:'OFF-U14F-R',nomeSquadra:'PVI ARDOR 2K MARIANO ROSSA',categoria:'Under 14 Femminile',girone:'2'},
+  {id:'OFF-U13F',nomeSquadra:'PVI ARDOR 2K MARIANO',categoria:'U13F',girone:'4'},
+  {id:'OFF-U13M',nomeSquadra:'PVI ARDOR 2K MARIANO',categoria:'U13M',girone:'3'}
+ ];
+ env.FETCH=async(url)=>({
+  ok:true,
+  json:async()=>official
+ });
+ const response=await call(env,'admin/roster/pgs-search',{},patty);
+ assert.equal(response.status,200,JSON.stringify(response.body));
+ assert.equal(response.body.linked.length,5,JSON.stringify(response.body));
+ assert.equal(response.body.pending.length,0);
+ const linked=(await statement(db,"SELECT id,category,name,linked_team_id FROM team_roster WHERE source='PGS' ORDER BY id").all()).results;
+ assert.equal(linked.length,8);
+ assert.ok(linked.every(x=>x.linked_team_id));
+ assert.equal(linked.find(x=>x.id===4).linked_team_id,'PGS:OFF-U21F');
+ assert.equal(linked.find(x=>x.id===18).linked_team_id,'PGS:OFF-U13F');
+ const men=(await statement(db,"SELECT count(*) n FROM teams WHERE official_team_id IN ('OFF-U21M','OFF-U13M')").first()).n;
+ assert.equal(men,0);
+ const saved=await statement(db,"SELECT * FROM teams WHERE id='PGS:OFF-U21F'").first();
+ assert.equal(saved.category,'U21F');
+ assert.equal(saved.coach1,'EMANUELE');
+ assert.equal(saved.managers,'ANTONELLA');
+ const repeated=await call(env,'admin/roster/pgs-search',{},patty);
+ assert.equal(repeated.status,200);
+ assert.equal(repeated.body.linked.length,0);
+ assert.equal((await statement(db,'SELECT count(*) n FROM teams').first()).n,8);
+ db.close();
+});
+
+test('PGS: se nome o categoria non coincidono, nessuna associazione forzata',async()=>{
+ const db=new LocalD1(),env=envFor(db),patty=await loginAdmin(env);
+ env.FETCH=async()=>({ok:true,json:async()=>[
+  {id:'OFF-M',nomeSquadra:'PVI ARDOR2K/AROSIO',categoria:'U21M',girone:'2'},
+  {id:'OFF-DIFF',nomeSquadra:'PVI ARDOR2K/AROSIO DIFFERENTE',categoria:'U21F',girone:'2'}
+ ]});
+ const res=await call(env,'admin/roster/pgs-search',{},patty);
+ assert.equal(res.status,200);
+ assert.equal(res.body.linked.length,0);
+ assert.ok(res.body.pending.some(x=>x.id===4&&x.reason.includes('U21M')));
+ assert.equal((await statement(db,'SELECT count(*) n FROM team_roster WHERE linked_team_id IS NOT NULL').first()).n,3);
+ db.close();
+});

@@ -14,7 +14,7 @@ import {
   validateTeam,
   EDITABLE,
 } from './domain.mjs';
-export const RELEASE = 'cf-staging-2026-10-27.10';
+export const RELEASE = 'cf-staging-2026-10-27.11';
 const enc = new TextEncoder();
 const hex = (buffer) =>
   Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -419,10 +419,15 @@ async function fetchJSON(url, fetcher = fetch) {
 
 const rosterNameKey = (s) => clean(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
   .toUpperCase().replace(/[^A-Z0-9]/g,'');
+// Nelle iscrizioni PGS "U21F"/"Under 21 Femminile" sono la
+// categoria femminile che nell'archivio utente è indicata "U21".
+// "U21M" rimane SEMPRE diversa: mai collegare un campionato maschile.
 const rosterCategoryKey = (s) => {
-  const v=clean(s).toUpperCase().replace(/UNDER[\s-]*/g,'U');
-  const age=v.match(/\bU\s*(\d+)\b/);
-  return age ? 'U'+age[1] : v.replace(/[^A-Z0-9]/g,'');
+  const v=clean(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const category=v.match(/^(?:UNDER|U)(\d{1,2})(F|FEMMINILE|M|MASCHILE)?$/);
+  if (!category) return v;
+  return 'U'+Number(category[1])+(category[2]&&category[2].startsWith('M')?'M':'F');
 };
 const rosterMatch = (r,c) => rosterNameKey(r.name)===rosterNameKey(c.name) &&
   rosterCategoryKey(r.category)===rosterCategoryKey(c.category);
@@ -990,11 +995,21 @@ async function route(req, env) {
     const seen=new Set(),linked=[],pending=[];
     for(const r of roster) {
       const found=official.filter(o=>rosterMatch(r,{name:o.nomeSquadra,category:o.categoria})&&clean(o.id||o._id));
-      if(found.length!==1) {pending.push({id:r.id,reason:found.length?'Ambiguità':'Non trovata'});continue;}
+      if(found.length!==1) {
+        const sameName=official.filter(o=>rosterNameKey(o.nomeSquadra)===rosterNameKey(r.name));
+        const categories=[...new Set(sameName.map(o=>clean(o.categoria)).filter(Boolean))];
+        pending.push({
+          id:r.id,name:r.name,category:r.category,
+          reason:found.length>1?'Più iscrizioni nella stessa categoria':
+            categories.length?'Categorie ufficiali da verificare: '+categories.join(', '):
+              'Nome non trovato nelle iscrizioni di questo campionato'
+        });
+        continue;
+      }
       const item=found[0],officialId=clean(item.id||item._id);
       if(seen.has(officialId)||
          await one(env.DB,'SELECT 1 FROM team_roster WHERE linked_team_id=?','PGS:'+officialId)) {
-        pending.push({id:r.id,reason:'Identificativo già usato'});continue;
+        pending.push({id:r.id,name:r.name,reason:'Identificativo già associato'});continue;
       }
       seen.add(officialId);
       const teamId='PGS:'+officialId;
@@ -1010,7 +1025,7 @@ async function route(req, env) {
           audit(env.DB,actor,'roster_linked',null,{roster_id:r.id,team_id:teamId})
         ]);
         linked.push({id:r.id,name:r.name});
-      } catch(e) {pending.push({id:r.id,reason:'Conflitto di collegamento'});}
+      } catch(e) {pending.push({id:r.id,name:r.name,reason:'Conflitto di collegamento'});}
     }
     return json({ok:true,linked,pending});
   }
