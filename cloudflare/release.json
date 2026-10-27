@@ -1,0 +1,91 @@
+{
+  "application": "VOLLEY CONTROL",
+  "environment": "staging",
+  "release": "cf-staging-2026-10-27.2",
+  "source_base_commit": "2dc1a18a2f95e342cefa13297676c14056a98617",
+  "target_worker": "volley-control-dev",
+  "target_database": "volley-control-dev-db",
+  "account_id": "be2a6531623a2d7500aabcf3a6efe5ce",
+  "production_deployment_authorized": false,
+  "cloudflare_connection": "Gestita separatamente tramite connettore; nessun accesso browser richiesto.",
+  "worker": {
+    "path": "cloudflare/worker.mjs",
+    "main_module": "worker.mjs",
+    "sha256": "32bbef370bfd0421ec1f2e2ae61e2bc5612f95888e497e3001e8540676cadc52",
+    "bytes": 94111
+  },
+  "schema": {
+    "path": "cloudflare/schema.sql",
+    "sha256": "5f4623e03fc4f1aa0a6bd4d86df07dea253578239a1e1cfcb1dd4d39137ec122",
+    "fresh_database_only": true
+  },
+  "statements": {
+    "path": "cloudflare/d1-statements.json",
+    "count": 41,
+    "max_per_api_batch": 15
+  },
+  "migrations": [
+    {
+      "file": "0001_initial.sql",
+      "sha256": "14e845da98b6ae173ecd6e5b867def90371a8ba0422eae5d1b4c9a6d6f836fd2",
+      "statements": 29
+    },
+    {
+      "file": "0002_sync_jobs.sql",
+      "sha256": "200baede17464b3a5389225328ac0073413bcbd234c4133ff0cc545850449f0d",
+      "statements": 1
+    },
+    {
+      "file": "0003_game_versions.sql",
+      "sha256": "3c036d295c25c17c833d3953effd980d2b14c54085a6a700af3613c77116105d",
+      "statements": 1
+    },
+    {
+      "file": "0004_recovery_jobs.sql",
+      "sha256": "14f74d80c1c4571b7e2d3e73cde138c3d149bfc64a8a146dfffc5498142f7c19",
+      "statements": 4
+    },
+    {
+      "file": "0005_write_guards.sql",
+      "sha256": "55e66480ebbdad9780a18541a770ec8ed6123c22fe9697924617b37d8bafc3ef",
+      "statements": 3
+    },
+    {
+      "file": "0006_cancellation_guards.sql",
+      "sha256": "22a5b0d72f6695b21761547756575a8c89c8bc4f1505dcb2e115359a1713a245",
+      "statements": 3
+    }
+  ],
+  "bindings": [
+    {
+      "name": "DB",
+      "type": "d1",
+      "id": "DA_CREARE_NELL_ALTRA_CHAT"
+    },
+    {
+      "name": "ENVIRONMENT",
+      "type": "plain_text",
+      "value": "staging"
+    },
+    {
+      "name": "REGISTRATION_ENABLED",
+      "type": "plain_text",
+      "value": "false"
+    },
+    {
+      "name": "FREE_PLAN_VERIFIED",
+      "type": "plain_text",
+      "value": "false"
+    },
+    {
+      "name": "PASSWORD_PEPPER",
+      "type": "secret_text",
+      "value": "DA_CONFIGURARE_CON_CANALE_SICURO"
+    },
+    {
+      "name": "PATTY_HASH",
+      "type": "secret_text",
+      "value": "DA_CONFIGURARE_CON_CANALE_SICURO"
+    }
+  ]
+}

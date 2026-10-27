@@ -14,7 +14,7 @@ import {
   validateTeam,
   EDITABLE,
 } from './domain.mjs';
-export const RELEASE = 'cf-staging-2026-10-27.1';
+export const RELEASE = 'cf-staging-2026-10-27.2';
 const enc = new TextEncoder();
 const hex = (buffer) =>
   Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -162,7 +162,7 @@ async function sessionReply(env, person_id, isAdmin) {
     'Set-Cookie': `__Host-vc=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${isAdmin ? 1800 : 28800}`,
   });
 }
-export function gameValues(g, scope, official, overrides = {}) {
+export function gameValues(g, scope, official, overrides = {}, sourceMissing = 0) {
   const [start, end] = interval(g);
   return [
     g.game_key,
@@ -183,9 +183,10 @@ export function gameValues(g, scope, official, overrides = {}) {
     g.required_scorers || 0,
     at(),
     at(),
+    sourceMissing ? 1 : 0,
   ];
 }
-const UPSERT_GAME = `INSERT INTO games(game_key,team_id,source,season,scope,official_json,overrides_json,effective_json,date,time,is_home,hidden,start_ts,end_ts,required_referees,required_scorers,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(game_key) DO UPDATE SET team_id=excluded.team_id,official_json=excluded.official_json,overrides_json=excluded.overrides_json,effective_json=excluded.effective_json,date=excluded.date,time=excluded.time,is_home=excluded.is_home,hidden=excluded.hidden,start_ts=excluded.start_ts,end_ts=excluded.end_ts,required_referees=excluded.required_referees,required_scorers=excluded.required_scorers,source_missing=0,updated_at=excluded.updated_at,version=games.version+1 WHERE games.version=?`;
+const UPSERT_GAME = `INSERT INTO games(game_key,team_id,source,season,scope,official_json,overrides_json,effective_json,date,time,is_home,hidden,start_ts,end_ts,required_referees,required_scorers,created_at,updated_at,source_missing) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(game_key) DO UPDATE SET team_id=excluded.team_id,official_json=excluded.official_json,overrides_json=excluded.overrides_json,effective_json=excluded.effective_json,date=excluded.date,time=excluded.time,is_home=excluded.is_home,hidden=excluded.hidden,start_ts=excluded.start_ts,end_ts=excluded.end_ts,required_referees=excluded.required_referees,required_scorers=excluded.required_scorers,source_missing=excluded.source_missing,updated_at=excluded.updated_at,version=games.version+1 WHERE games.version=?`;
 export async function saveGame(
   db,
   g,
@@ -201,7 +202,11 @@ export async function saveGame(
     group_id: g.group_id,
     competition: official.competition || g.competition,
   });
-  const prior = await one(db, 'SELECT version FROM games WHERE game_key=?', g.game_key);
+  const prior = await one(
+    db,
+    'SELECT version,source_missing FROM games WHERE game_key=?',
+    g.game_key,
+  );
   const version = expectedVersion ?? prior?.version ?? -1;
   let results;
   try {
@@ -212,7 +217,12 @@ export async function saveGame(
         g.game_key,
         version,
       ),
-      statement(db, UPSERT_GAME, ...gameValues(g, scope, official, overrides), version),
+      statement(
+        db,
+        UPSERT_GAME,
+        ...gameValues(g, scope, official, overrides, prior?.source_missing || 0),
+        version,
+      ),
       audit(db, actor, actor === 'sync' ? 'source_updated' : 'game_modified', g.game_key, {
         overrides,
         reason,
@@ -298,7 +308,7 @@ export async function saveImport(db, incoming, scope, resultsOnly = false, markM
     const keys = JSON.stringify(incoming.map((g) => g.game_key));
     const r = await statement(
       db,
-      `UPDATE games SET source_missing=1 WHERE scope=? AND source_missing=0 AND game_key NOT IN(SELECT value FROM json_each(?))`,
+      `UPDATE games SET source_missing=1,version=version+1 WHERE scope=? AND source_missing=0 AND game_key NOT IN(SELECT value FROM json_each(?))`,
       scope,
       keys,
     ).run();
@@ -490,7 +500,7 @@ export async function syncStep(env, id) {
       q.push(
         statement(
           env.DB,
-          'UPDATE games SET source_missing=1 WHERE scope=? AND source_missing=0 AND game_key NOT IN(SELECT value FROM json_each(?))',
+          'UPDATE games SET source_missing=1,version=version+1 WHERE scope=? AND source_missing=0 AND game_key NOT IN(SELECT value FROM json_each(?))',
           job.scope,
           JSON.stringify(games.map((g) => g.game_key)),
         ),
@@ -701,10 +711,14 @@ async function route(req, env) {
   const s = await authenticate(req, env);
   const actor = s?.admin ? 'PATTY' : s?.person_id;
   if (path === '/api/health' && req.method === 'GET') {
-    await one(env.DB, 'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1');
+    const schema = await one(
+      env.DB,
+      'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
+    );
     return json({
       ok: true,
       release: RELEASE,
+      schema_version: schema?.version || 0,
       environment: env.ENVIRONMENT || 'staging',
       persistent: true,
     });
@@ -819,6 +833,16 @@ async function route(req, env) {
     const q = [
       statement(
         env.DB,
+        'INSERT INTO cancellation_guards(game_key,role,slot,person_id,source,created_at) VALUES(?,?,?,?,?,?)',
+        b.game_key,
+        b.role,
+        b.slot,
+        a.person_id,
+        a.source,
+        a.created_at,
+      ),
+      statement(
+        env.DB,
         'DELETE FROM assignments WHERE game_key=? AND role=? AND slot=?',
         b.game_key,
         b.role,
@@ -835,7 +859,22 @@ async function route(req, env) {
           b.role,
         ),
       );
-    await env.DB.batch(q);
+    q.push(
+      statement(
+        env.DB,
+        'DELETE FROM cancellation_guards WHERE game_key=? AND role=? AND slot=?',
+        b.game_key,
+        b.role,
+        b.slot,
+      ),
+    );
+    try {
+      await env.DB.batch(q);
+    } catch (e) {
+      if (/STALE_ASSIGNMENT/.test(String(e)))
+        fail('Il posto è stato modificato da un altro utente. Riapri la scheda.', 409);
+      throw e;
+    }
     return json({ ok: true });
   }
   admin(s);

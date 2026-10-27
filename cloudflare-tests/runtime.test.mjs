@@ -6,22 +6,6 @@ const require = createRequire(import.meta.url);
 require('../scripts/local-network-fallback.cjs');
 import { passwordHash, random, statement, saveGame } from '../worker/index.mjs';
 const { Miniflare, convertV4MiniflareOptions } = await import('miniflare');
-function splitSQL(sql) {
-  const result = [];
-  let rest = sql.trim();
-  while (rest) {
-    let end;
-    if (rest.startsWith('CREATE TRIGGER')) {
-      const match = /^END;/m.exec(rest);
-      assert.ok(match);
-      end = match.index + 4;
-    } else end = rest.indexOf(';') + 1;
-    if (!end) break;
-    result.push(rest.slice(0, end));
-    rest = rest.slice(end).trim();
-  }
-  return result;
-}
 test('runtime Cloudflare workerd + D1: migrazioni, auth, cookie, prenotazioni atomiche e backup', async () => {
   const pepper = random(),
     password = random(),
@@ -32,8 +16,10 @@ test('runtime Cloudflare workerd + D1: migrazioni, auth, cookie, prenotazioni at
         {
           name: 'test',
           modules: [
-            { type: 'ESModule', path: new URL('../dist/worker.mjs', import.meta.url).pathname },
-            { type: 'ESModule', path: new URL('../dist/domain.mjs', import.meta.url).pathname },
+            {
+              type: 'ESModule',
+              path: new URL('../cloudflare/worker.mjs', import.meta.url).pathname,
+            },
           ],
           compatibilityDate: '2026-10-01',
           d1Databases: { DB: 'local-runtime-test' },
@@ -50,16 +36,14 @@ test('runtime Cloudflare workerd + D1: migrazioni, auth, cookie, prenotazioni at
   );
   try {
     const db = await mf.getD1Database('DB');
-    for (const migration of [
-      '0001_initial.sql',
-      '0002_sync_jobs.sql',
-      '0003_game_versions.sql',
-      '0004_recovery_jobs.sql',
-      '0005_write_guards.sql',
-    ]) {
-      const sql = await readFile(new URL('../migrations/' + migration, import.meta.url), 'utf8');
-      for (const s of splitSQL(sql)) await db.prepare(s).run();
-    }
+    const statements = JSON.parse(
+      await readFile(new URL('../cloudflare/d1-statements.json', import.meta.url), 'utf8'),
+    );
+    for (const entry of statements)
+      await db
+        .prepare(entry.sql)
+        .bind(...entry.params)
+        .run();
     const request = async (path, data, auth = {}) => {
       const r = await mf.dispatchFetch('https://test.invalid/api/' + path, {
         method: data === undefined ? 'GET' : 'POST',
@@ -73,7 +57,10 @@ test('runtime Cloudflare workerd + D1: migrazioni, auth, cookie, prenotazioni at
       });
       return { status: r.status, headers: r.headers, body: await r.json() };
     };
-    assert.equal((await request('health')).status, 200);
+    const health = await request('health');
+    assert.equal(health.status, 200);
+    assert.equal(health.body.schema_version, 6);
+    assert.equal(health.body.release, 'cf-staging-2026-10-27.2');
     let r = await request('auth/login', { admin: true, password });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.match(r.headers.get('set-cookie'), /HttpOnly/);

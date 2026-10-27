@@ -606,7 +606,7 @@ test('ripristino 400 gare su DB isolato in blocchi entro 50 query e ripristino g
   assert.equal(
     (await statement(target, "SELECT count(*) n FROM sqlite_master WHERE type='trigger'").first())
       .n,
-    5,
+    6,
   );
   assert.equal((await statement(target, 'PRAGMA foreign_key_check').all()).results.length, 0);
   await statement(target, 'UPDATE people SET approved=0').run();
@@ -690,5 +690,78 @@ test('sync Free: budget query rispettato anche con entrambi i ruoli FISSI su 20 
     assert.ok(db.calls < 45, 'query più margine auth/telemetria: ' + db.calls);
   } while (!result.done);
   assert.equal((await statement(db, 'SELECT count(*) n FROM assignments').first()).n, 40);
+  db.close();
+});
+
+test('correzione PATTY di una gara assente non riapre le prenotazioni', async () => {
+  const db = new LocalD1();
+  await game(db);
+  await statement(db, 'UPDATE games SET source_missing=1 WHERE game_key=?', GAME.game_key).run();
+  await saveGame(
+    db,
+    { ...GAME, notes: 'TEST correzione' },
+    GAME,
+    { notes: 'TEST correzione' },
+    'PATTY',
+  );
+  assert.equal(
+    (
+      await statement(
+        db,
+        'SELECT source_missing FROM games WHERE game_key=?',
+        GAME.game_key,
+      ).first()
+    ).source_missing,
+    1,
+  );
+  const p = await addPerson(db);
+  await assert.rejects(assign(db, GAME.game_key, 'referee', 1, p));
+  await saveImport(db, [GAME], 'FIPAV:2026-2027:63945');
+  assert.equal(
+    (
+      await statement(
+        db,
+        'SELECT source_missing FROM games WHERE game_key=?',
+        GAME.game_key,
+      ).first()
+    ).source_missing,
+    0,
+  );
+  await assign(db, GAME.game_key, 'referee', 1, p);
+  db.close();
+});
+
+test('annullamento concorrente non rimuove un incarico appena riassegnato a un altro utente', async () => {
+  const db = new LocalD1(),
+    env = envFor(db);
+  await game(db);
+  const p = await addPerson(db, 'TEST-original'),
+    replacement = await addPerson(db, 'TEST-replacement');
+  await assign(db, GAME.game_key, 'referee', 1, p);
+  const auth = await userSession(db, p),
+    originalBatch = db.batch.bind(db);
+  let injected = false;
+  db.batch = async (queries) => {
+    if (!injected && queries.some((q) => q.sql.includes('INSERT INTO cancellation_guards'))) {
+      injected = true;
+      db.db.prepare('DELETE FROM assignments WHERE game_key=?').run(GAME.game_key);
+      db.db
+        .prepare('INSERT INTO assignments VALUES(?,?,?,?,?,?)')
+        .run(GAME.game_key, 'referee', 1, replacement, 'patty', new Date().toISOString());
+    }
+    return originalBatch(queries);
+  };
+  const response = await call(
+    env,
+    'cancel',
+    { game_key: GAME.game_key, role: 'referee', slot: 1 },
+    auth,
+  );
+  assert.equal(response.status, 409);
+  assert.equal(
+    (await statement(db, 'SELECT person_id FROM assignments').first()).person_id,
+    replacement,
+  );
+  assert.equal((await statement(db, 'SELECT count(*) n FROM cancellation_guards').first()).n, 0);
   db.close();
 });

@@ -1,0 +1,207 @@
+[
+  {
+    "migration": "0001_initial.sql",
+    "sql": "PRAGMA foreign_keys=ON;",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "INSERT INTO schema_migrations VALUES(1, strftime('%Y-%m-%dT%H:%M:%fZ','now'));",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE teams (\n id TEXT PRIMARY KEY, source TEXT NOT NULL CHECK(source IN ('FIPAV','PGS')),\n season TEXT NOT NULL, competition TEXT NOT NULL DEFAULT '', group_id TEXT NOT NULL DEFAULT '',\n official_team_id TEXT NOT NULL, name TEXT NOT NULL, category TEXT NOT NULL, short_name TEXT NOT NULL,\n coach1 TEXT NOT NULL DEFAULT '', coach2 TEXT NOT NULL DEFAULT '', managers TEXT NOT NULL DEFAULT '',\n active INTEGER NOT NULL DEFAULT 1 CHECK(active IN(0,1)),\n UNIQUE(source,season,competition,group_id,official_team_id)\n);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "INSERT INTO teams(id,source,season,group_id,official_team_id,name,category,short_name) VALUES\n ('FIPAV:229693','FIPAV','2026-2027','63945','229693','PVI STUDIO OTTOLINA','U15 Femminile','OTTOLINA'),\n ('FIPAV:229990','FIPAV','2026-2027','63942','229990','PVI PINUCCÈ','U17 Femminile','PINUCCE');",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "INSERT INTO teams(id,source,season,competition,group_id,official_team_id,name,category,short_name) VALUES\n ('PGS:6ab0ec072cf8134e0d68e749','PGS','2026-2027','invernale_2026-2027','4','6ab0ec072cf8134e0d68e749','PVI ARDOR 2K GIUSSANO','U11','ARDOR GIUSSANO');",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE people (\n id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL COLLATE NOCASE, first_name TEXT NOT NULL, last_name TEXT NOT NULL,\n password_hash TEXT NOT NULL, wants_referee INTEGER NOT NULL CHECK(wants_referee IN(0,1)),\n wants_scorer INTEGER NOT NULL CHECK(wants_scorer IN(0,1)), approved INTEGER NOT NULL DEFAULT 0 CHECK(approved IN(0,1)),\n created_at TEXT NOT NULL\n);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, person_id TEXT REFERENCES people(id) ON DELETE CASCADE,\n admin INTEGER NOT NULL DEFAULT 0, csrf TEXT NOT NULL, expires_at INTEGER NOT NULL);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE INDEX sessions_expiry ON sessions(expires_at);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE games (\n game_key TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES teams(id), source TEXT NOT NULL, season TEXT NOT NULL,\n scope TEXT NOT NULL, official_json TEXT NOT NULL CHECK(json_valid(official_json)),\n overrides_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(overrides_json)),\n effective_json TEXT NOT NULL CHECK(json_valid(effective_json)), date TEXT NOT NULL DEFAULT '', time TEXT NOT NULL DEFAULT '',\n is_home INTEGER NOT NULL CHECK(is_home IN(0,1)), hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN(0,1)),\n source_missing INTEGER NOT NULL DEFAULT 0 CHECK(source_missing IN(0,1)),\n start_ts INTEGER, end_ts INTEGER, required_referees INTEGER NOT NULL CHECK(required_referees BETWEEN 0 AND 10),\n required_scorers INTEGER NOT NULL CHECK(required_scorers BETWEEN 0 AND 10),\n created_at TEXT NOT NULL, updated_at TEXT NOT NULL\n);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE INDEX games_week ON games(date,time);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE INDEX games_scope ON games(scope);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE INDEX games_team ON games(team_id,date);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE assignments (\n game_key TEXT NOT NULL REFERENCES games(game_key) ON DELETE CASCADE, role TEXT NOT NULL CHECK(role IN('referee','scorer')),\n slot INTEGER NOT NULL CHECK(slot BETWEEN 1 AND 10), person_id TEXT NOT NULL REFERENCES people(id),\n source TEXT NOT NULL CHECK(source IN('self','fixed','patty')), created_at TEXT NOT NULL,\n PRIMARY KEY(game_key,role,slot), UNIQUE(game_key,person_id)\n);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE INDEX assignments_person ON assignments(person_id,game_key);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE team_fixed(team_id TEXT NOT NULL REFERENCES teams(id), role TEXT NOT NULL CHECK(role IN('referee','scorer')),\n person_id TEXT NOT NULL REFERENCES people(id), PRIMARY KEY(team_id,role));",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE fixed_exceptions(game_key TEXT NOT NULL REFERENCES games(game_key), role TEXT NOT NULL, PRIMARY KEY(game_key,role));",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE import_conflicts(game_key TEXT NOT NULL REFERENCES games(game_key), field TEXT NOT NULL,\n incoming TEXT NOT NULL, detected_at TEXT NOT NULL, PRIMARY KEY(game_key,field));",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE audit(id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL,\n game_key TEXT, details TEXT NOT NULL, changed_at TEXT NOT NULL);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE INDEX audit_game ON audit(game_key,id);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE sync_runs(scope TEXT PRIMARY KEY, at TEXT NOT NULL, report TEXT NOT NULL, error TEXT);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE sync_locks(scope TEXT PRIMARY KEY, token TEXT NOT NULL, expires_at INTEGER NOT NULL);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TABLE usage_daily(day TEXT PRIMARY KEY, reads INTEGER NOT NULL DEFAULT 0, writes INTEGER NOT NULL DEFAULT 0,\n requests INTEGER NOT NULL DEFAULT 0);",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TRIGGER booking_guard BEFORE INSERT ON assignments BEGIN\n SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM people WHERE id=NEW.person_id AND approved=1 AND\n  CASE NEW.role WHEN 'referee' THEN wants_referee ELSE wants_scorer END=1)\n  THEN RAISE(ABORT,'PERSON_NOT_ELIGIBLE') END;\n SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM games WHERE game_key=NEW.game_key AND is_home=1 AND hidden=0 AND source_missing=0\n  AND start_ts IS NOT NULL AND NEW.slot <= CASE NEW.role WHEN 'referee' THEN required_referees ELSE required_scorers END)\n  THEN RAISE(ABORT,'GAME_NOT_BOOKABLE') END;\n SELECT CASE WHEN EXISTS(SELECT 1 FROM assignments a JOIN games other ON other.game_key=a.game_key\n  JOIN games target ON target.game_key=NEW.game_key WHERE a.person_id=NEW.person_id\n  AND other.hidden=0 AND target.start_ts<other.end_ts AND other.start_ts<target.end_ts)\n  THEN RAISE(ABORT,'TIME_CONFLICT') END;\nEND;",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TRIGGER game_retime_guard BEFORE UPDATE OF start_ts,end_ts,is_home,required_referees,required_scorers ON games BEGIN\n SELECT CASE WHEN EXISTS(SELECT 1 FROM assignments a JOIN assignments b ON a.person_id=b.person_id AND a.game_key<>b.game_key\n  JOIN games other ON other.game_key=b.game_key WHERE a.game_key=NEW.game_key AND other.hidden=0 AND NEW.hidden=0\n  AND NEW.start_ts<other.end_ts AND other.start_ts<NEW.end_ts)\n  THEN RAISE(ABORT,'MOVE_BOOKING_CONFLICT') END;\n SELECT CASE WHEN EXISTS(SELECT 1 FROM assignments a WHERE a.game_key=NEW.game_key AND\n  (NEW.is_home=0 OR NEW.start_ts IS NULL OR a.slot>CASE a.role WHEN 'referee' THEN NEW.required_referees ELSE NEW.required_scorers END))\n  THEN RAISE(ABORT,'REMOVE_ASSIGNMENTS_FIRST') END;\nEND;",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TRIGGER audit_booking AFTER INSERT ON assignments BEGIN\n INSERT INTO audit(actor,action,game_key,details,changed_at) VALUES(NEW.person_id,'assigned',NEW.game_key,\n json_object('role',NEW.role,'slot',NEW.slot,'source',NEW.source),NEW.created_at);\nEND;",
+    "params": []
+  },
+  {
+    "migration": "0001_initial.sql",
+    "sql": "CREATE TRIGGER audit_cancellation AFTER DELETE ON assignments BEGIN\n INSERT INTO audit(actor,action,game_key,details,changed_at) VALUES('system','assignment_removed',OLD.game_key,\n json_object('person_id',OLD.person_id,'role',OLD.role,'slot',OLD.slot),strftime('%Y-%m-%dT%H:%M:%fZ','now'));\nEND;",
+    "params": []
+  },
+  {
+    "migration": "0002_sync_jobs.sql",
+    "sql": "CREATE TABLE sync_jobs(id TEXT PRIMARY KEY,scope TEXT NOT NULL,results_only INTEGER NOT NULL,\n payload_json TEXT NOT NULL,offset INTEGER NOT NULL DEFAULT 0,report_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL);",
+    "params": []
+  },
+  {
+    "migration": "0003_game_versions.sql",
+    "sql": "ALTER TABLE games ADD COLUMN version INTEGER NOT NULL DEFAULT 0;",
+    "params": []
+  },
+  {
+    "migration": "0004_recovery_jobs.sql",
+    "sql": "CREATE TABLE restore_jobs(id TEXT PRIMARY KEY,payload_json TEXT NOT NULL,triggers_json TEXT NOT NULL,\n offset INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL);",
+    "params": []
+  },
+  {
+    "migration": "0004_recovery_jobs.sql",
+    "sql": "INSERT INTO schema_migrations VALUES(2,strftime('%Y-%m-%dT%H:%M:%fZ','now'));",
+    "params": []
+  },
+  {
+    "migration": "0004_recovery_jobs.sql",
+    "sql": "INSERT INTO schema_migrations VALUES(3,strftime('%Y-%m-%dT%H:%M:%fZ','now'));",
+    "params": []
+  },
+  {
+    "migration": "0004_recovery_jobs.sql",
+    "sql": "INSERT INTO schema_migrations VALUES(4,strftime('%Y-%m-%dT%H:%M:%fZ','now'));",
+    "params": []
+  },
+  {
+    "migration": "0005_write_guards.sql",
+    "sql": "CREATE TABLE write_guards(game_key TEXT PRIMARY KEY,expected_version INTEGER NOT NULL);",
+    "params": []
+  },
+  {
+    "migration": "0005_write_guards.sql",
+    "sql": "CREATE TRIGGER version_guard BEFORE INSERT ON write_guards BEGIN\n SELECT CASE WHEN COALESCE((SELECT version FROM games WHERE game_key=NEW.game_key),-1)<>NEW.expected_version\n THEN RAISE(ABORT,'STALE_WRITE') END;\nEND;",
+    "params": []
+  },
+  {
+    "migration": "0005_write_guards.sql",
+    "sql": "INSERT INTO schema_migrations VALUES(5,strftime('%Y-%m-%dT%H:%M:%fZ','now'));",
+    "params": []
+  },
+  {
+    "migration": "0006_cancellation_guards.sql",
+    "sql": "CREATE TABLE cancellation_guards(\n game_key TEXT NOT NULL,role TEXT NOT NULL,slot INTEGER NOT NULL,\n person_id TEXT NOT NULL,source TEXT NOT NULL,created_at TEXT NOT NULL,\n PRIMARY KEY(game_key,role,slot)\n);",
+    "params": []
+  },
+  {
+    "migration": "0006_cancellation_guards.sql",
+    "sql": "CREATE TRIGGER cancellation_version_guard BEFORE INSERT ON cancellation_guards BEGIN\n SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM assignments a\n WHERE a.game_key=NEW.game_key AND a.role=NEW.role AND a.slot=NEW.slot\n AND a.person_id=NEW.person_id AND a.source=NEW.source AND a.created_at=NEW.created_at)\n THEN RAISE(ABORT,'STALE_ASSIGNMENT') END;\nEND;",
+    "params": []
+  },
+  {
+    "migration": "0006_cancellation_guards.sql",
+    "sql": "INSERT INTO schema_migrations VALUES(6,strftime('%Y-%m-%dT%H:%M:%fZ','now'));",
+    "params": []
+  }
+]

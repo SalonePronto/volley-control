@@ -55,3 +55,8 @@ NON portare Python Streamlit nel Worker pensando che funzioni invariato: migrare
 ## Condizione essenziale
 
 L'utente vuole una soluzione affidabile **senza imprevisti economici prevedibili**. Se non riesci a verificare un requisito, segnala chiaramente il blocco e prosegui dove possibile: non fingere che il sistema sia testato, sicuro o gratuito senza verifica. Non chiedere all'utente di editare codice o aprire terminale.
+
+
+## Aggiornamento operativo del proprietario — 27 ottobre 2026
+
+Non tentare più accessi al pannello Cloudflare tramite browser: il login ha restituito 403. Continuare autonomamente sviluppo, schema D1, configurazione e test su `cloudflare-migrazione`. Collegamento Cloudflare e pubblicazione dello staging saranno gestiti separatamente tramite il connettore funzionante nell’altra chat. Non interrompere lo sviluppo per il problema di accesso. Non modificare Salone Pronto e non pubblicare la versione definitiva. La consegna tecnica aggiornata è `CLOUDFLARE_CONNETTORE_CONSEGNA.md`, con artefatti pronti in `cloudflare/`.

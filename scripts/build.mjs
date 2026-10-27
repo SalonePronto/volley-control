@@ -8,11 +8,19 @@ for (const [url, file, type] of [
   assets[url] = { body: await readFile(file, 'utf8'), type };
 await mkdir('dist', { recursive: true });
 let code = await readFile('worker/index.mjs', 'utf8');
-code = code.replace(/export (?=(?:const|function|async function) )/g, '');
+const domain = (await readFile('worker/domain.mjs', 'utf8')).replace(
+  /export (?=(?:const|function|async function) )/g,
+  '',
+);
+const domainImport = /import\s*\{[\s\S]*?\}\s*from\s*['"]\.\/domain\.mjs['"];?/;
 code = code.replace(
   "import { ASSETS } from './assets.mjs';",
   'const ASSETS = ' + JSON.stringify(assets) + ';',
 );
+if (!domainImport.test(code)) throw new Error('Import del dominio non trovato: build interrotta.');
+code = code
+  .replace(domainImport, () => domain)
+  .replace(/export (?=(?:const|function|async function) )/g, '');
+if (/^import\s/m.test(code)) throw new Error('Il bundle deve essere privo di import esterni.');
 await writeFile('dist/worker.mjs', code);
-console.log('Worker standalone costruito; nessun deploy automatico.');
-await writeFile('dist/domain.mjs', await readFile('worker/domain.mjs', 'utf8'));
+console.log('Worker autonomo costruito: un solo modulo, nessun deploy automatico.');

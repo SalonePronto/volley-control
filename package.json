@@ -5,8 +5,9 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test cloudflare-tests/*.test.mjs",
-    "check": "npm run build && node --check worker/index.mjs && node --check web/app.js && npm test",
-    "format:check": "prettier --check worker web scripts cloudflare-tests package.json wrangler.jsonc"
+    "check": "npm run release && node --check worker/index.mjs && node --check cloudflare/worker.mjs && node --check web/app.js && npm test",
+    "format:check": "prettier --check worker web scripts cloudflare-tests package.json wrangler.jsonc",
+    "release": "npm run build && node scripts/package-release.mjs"
   },
   "engines": {
     "node": ">=22.13"

@@ -16,6 +16,9 @@ export class LocalD1 {
     this.db.exec(
       readFileSync(new URL('../migrations/0005_write_guards.sql', import.meta.url), 'utf8'),
     );
+    this.db.exec(
+      readFileSync(new URL('../migrations/0006_cancellation_guards.sql', import.meta.url), 'utf8'),
+    );
     this.calls = 0;
   }
   prepare(sql) {

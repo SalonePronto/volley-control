@@ -1,14 +1,16 @@
 # Volley Control — migrazione Cloudflare, stato del 27 ottobre 2026
 
-**Stato: implementazione e collaudo locale; pubblicazione e collaudo remoto BLOCCATI dalla mancata verifica del piano economico. Non è una migrazione completata.**
+**Stato aggiornato: sviluppo e collaudo locale proseguiti; pacchetto pronto per la chat con connettore. Pubblicazione e collaudo remoto affidati separatamente a quella chat. Non è dichiarata una migrazione online completata.**
+
+Il 27 ottobre Andrea ha vietato ulteriori tentativi di login al pannello Cloudflare e ha assegnato connessione/pubblicazione a un’altra chat. Tale problema non interrompe più lo sviluppo. Vedere `CLOUDFLARE_CONNETTORE_CONSEGNA.md` e la cartella `cloudflare/`.
 
 ## Fonti e isolamento
 
 Letto integralmente `CLOUDFLARE_MIGRAZIONE_WORK.md`; analizzati i sorgenti Python, gli adattatori e i test presenti nel ramo. Base del lavoro: `214da2bf4975569650743a4aa6ce072b4345c1dc`. Main verificato ancora a `7a72ddb087e8f1bfb6f7b795392e2fda25b79e6e`. Nessun file Python preesistente è stato modificato. Nessun merge su main, nessuna modifica a Streamlit, nessuna modifica a Salone Pronto.
 
-Nuovi sorgenti in `worker/`, `web/`, `migrations/`, `cloudflare-tests/`, `scripts/`. Applicazione HTML/CSS/JS senza dipendenze frontend o servizi aggiuntivi; Worker ESM e D1. I pacchetti npm sono solo strumenti di sviluppo/test. Le cinque migrazioni inseriscono **solo la configurazione delle tre squadre reali già approvate**, mai gare, persone o prenotazioni di esempio.
+Nuovi sorgenti in `worker/`, `web/`, `migrations/`, `cloudflare-tests/`, `scripts/`. Applicazione HTML/CSS/JS senza dipendenze frontend o servizi aggiuntivi; Worker ESM e D1. I pacchetti npm sono solo strumenti di sviluppo/test. Le sei migrazioni inseriscono **solo la configurazione delle tre squadre reali già approvate**, mai gare, persone o prenotazioni di esempio.
 
-## Blocco concreto prima del deploy
+## Stato del collegamento: verifica demandata alla chat di pubblicazione
 
 La connessione API Cloudflare autorizzata funziona. Inventario letto: dieci Worker preesistenti, tutti relativi a Salone Pronto, e un D1 `salone-pronto-db` (466944 byte al controllo). Non sono stati letti i suoi dati applicativi e non è stato modificato.
 
@@ -48,14 +50,16 @@ I nomi lunghi possono far aumentare la riga mobile oltre il minimo di 36px per m
 
 ## Test automatici al controllo
 
-- **29 test JavaScript**: 25 di dominio/storage/API, uno di integrazione sul runtime Cloudflare workerd con D1 locale, tre di frontend DOM con chiamate alle API. Eseguire build prima dei test runtime.
+- **33 test JavaScript**: 27 di dominio/storage/API, due sul pacchetto e ripristino SQL, uno di integrazione sul runtime Cloudflare workerd con D1 locale, tre di frontend DOM con chiamate alle API. Eseguire `npm run check` per rigenerare il pacchetto prima dei test runtime.
 - **19 test Python originali superati** nel checkout di migrazione, senza modifiche ai vecchi sorgenti.
 - Migrazioni applicate anche tramite Wrangler D1 locale.
 - Build del Worker standalone, controllo sintassi e `git diff --check`.
-- Il test con 400 gare verifica il ripristino a passi di 20 record e il ripristino dei trigger.
+- Il test con 400 gare verifica il ripristino a passi di 20 record e il ripristino dei trigger; un secondo test recupera 650 gare mediante SQL privato, preservando apostrofi e stringhe potenzialmente ostili.
+- Nuovi test verificano che una modifica PATTY non riapra le prenotazioni di una gara assente dalla fonte e che un annullamento concorrente non rimuova un incarico riassegnato a un’altra persona.
+- Il test workerd usa esattamente il Worker unico e le 41 istruzioni D1 consegnate nella cartella `cloudflare/`, non una ricostruzione differente.
 - Nessuna persona o prenotazione di test pubblicata online.
 
-`npm run check` costruisce il bundle, verifica la sintassi e avvia i test. Il simulatore workerd non dimostra il rispetto del budget CPU del piano Free in produzione: serve il test remoto con gli effettivi calendari, specialmente la risposta PGS più ampia.
+`npm run check` costruisce il Worker unico, prepara i payload del connettore, verifica la sintassi e avvia i test. Il simulatore workerd non dimostra il rispetto del budget CPU del piano Free in produzione: serve il test remoto con gli effettivi calendari, specialmente la risposta PGS più ampia.
 
 ## Costi e limiti: documentazione controllata
 
@@ -85,7 +89,7 @@ Per ripristinare anche gli accessi, il pepper deve essere custodito separatament
 1. Ottenere verifica leggibile del piano Workers Free e dei consumi condivisi, senza cambiare piano o attivare fatturazione.
 2. Verificare che i nomi `volley-control-dev` e `volley-control-dev-db` siano liberi; creare solo queste risorse, preferendo D1 in giurisdizione UE. Non riutilizzare né collegare il DB Salone Pronto.
 3. Configurare binding e secrets tramite connessione Cloudflare; nessun terminale richiesto ad Andrea. `wrangler.jsonc` contiene intenzionalmente un ID segnaposto che impedisce di scambiare un DB locale per quello remoto.
-4. Applicare le cinque migrazioni al nuovo DB, pubblicare lo staging e recuperare i calendari reali con i pulsanti PATTY. Non usare fixture di test nel nuovo DB remoto.
+4. Applicare le sei migrazioni al nuovo DB, pubblicare lo staging e recuperare i calendari reali con i pulsanti PATTY. Non usare fixture di test nel nuovo DB remoto.
 5. Eseguire test browser desktop/mobile, account fittizi, prenotazioni concorrenti, modifica orario, aggiornamenti, backup/ripristino su un secondo DB di recupero dedicato; verificare che l'altro Worker e DB siano invariati.
 6. Presentare URL e risultati effettivi ad Andrea. Versione definitiva solo dopo approvazione. Streamlit non viene dismesso automaticamente.
 
