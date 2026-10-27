@@ -59,8 +59,8 @@ test('runtime Cloudflare workerd + D1: migrazioni, auth, cookie, prenotazioni at
     };
     const health = await request('health');
     assert.equal(health.status, 200);
-    assert.equal(health.body.schema_version, 6);
-    assert.equal(health.body.release, 'cf-staging-2026-10-27.5');
+    assert.equal(health.body.schema_version, 7);
+    assert.equal(health.body.release, 'cf-staging-2026-10-27.6');
     let r = await request('auth/login', { admin: true, password });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.match(r.headers.get('set-cookie'), /HttpOnly/);
@@ -108,7 +108,7 @@ test('runtime Cloudflare workerd + D1: migrazioni, auth, cookie, prenotazioni at
         (
           await request(
             'admin/person',
-            { id: p.id, approved: true, wants_referee: true, wants_scorer: true },
+            { id: p.id, approved: true, wants_referee: true, wants_scorer: true, wants_manager: false, wants_coach: false },
             adm,
           )
         ).status,

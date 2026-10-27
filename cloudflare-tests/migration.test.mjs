@@ -64,7 +64,7 @@ const GAME = {
 async function addPerson(db, id = 'TEST-person', approved = 1) {
   await statement(
     db,
-    'INSERT INTO people VALUES(?,?,?,?,?,?,?,?,?)',
+    'INSERT INTO people(id,email,first_name,last_name,password_hash,wants_referee,wants_scorer,approved,created_at) VALUES(?,?,?,?,?,?,?,?,?)',
     id,
     id + '@example.invalid',
     'TEST',
@@ -208,7 +208,7 @@ test('hash salato con pepper, password errata e lunghezza minima', async () => {
   assert.ok(await verifyPassword('1234', await passwordHash('1234', 'pepper'), 'pepper'));
   await assert.rejects(passwordHash('abc', 'pepper'));
 });
-test('registrazione, approvazione manuale, entrambi i ruoli, nessuna impersonificazione', async () => {
+test('registrazione automatica, entrambi i ruoli, nessuna impersonificazione', async () => {
   const db = new LocalD1(),
     env = envFor(db),
     adm = await loginAdmin(env);
@@ -229,7 +229,7 @@ test('registrazione, approvazione manuale, entrambi i ruoli, nessuna impersonifi
         password: 'P123',
       })
     ).status,
-    403,
+    200,
   );
   const person = await statement(
     db,
@@ -237,11 +237,11 @@ test('registrazione, approvazione manuale, entrambi i ruoli, nessuna impersonifi
     'TEST',
     'COLLAUDO',
   ).first();
-  assert.equal(person.approved, 0);
+  assert.equal(person.approved, 1);
   await call(
     env,
     'admin/person',
-    { id: person.id, approved: true, wants_referee: true, wants_scorer: true },
+    { id: person.id, approved: true, wants_referee: true, wants_scorer: true, wants_manager:false, wants_coach:false },
     adm,
   );
   await game(db);
@@ -776,9 +776,9 @@ test('Nome/cognome e codice: univocità e approvazione', async()=>{
  assert.equal((await call(env,'auth/register',{...data,first_name:'simona'})).status,409);
  assert.equal((await call(env,'auth/login',{...data,password:'1234'})).status,401);
  const person=await statement(db,"SELECT * FROM people WHERE first_name='SIMONA'").first();
- assert.equal(person.approved,0);
+ assert.equal(person.approved,1);
  const admin=await loginAdmin(env);
- assert.equal((await call(env,'admin/person',{id:person.id,approved:true,wants_referee:true,wants_scorer:false},admin)).status,200);
+ assert.equal((await call(env,'admin/person',{id:person.id,approved:true,wants_referee:true,wants_scorer:false,wants_manager:false,wants_coach:false},admin)).status,200);
  assert.equal((await call(env,'auth/login',data)).status,200);
  db.close();
 });
@@ -797,7 +797,7 @@ test('riconoscimento personale permanente, rinnovo vecchio accesso, uscita e PAT
   const data = { first_name:'LUCA', last_name:'PROVA', password:'L123', wants_referee:true, wants_scorer:true, staging_consent:true };
   assert.equal((await call(env, 'auth/register', data)).status, 201);
   const person = await statement(db, "SELECT id FROM people WHERE first_name='LUCA'").first();
-  assert.equal((await call(env, 'admin/person', { id:person.id, approved:true, wants_referee:true, wants_scorer:true }, admin)).status, 200);
+  assert.equal((await call(env, 'admin/person', { id:person.id, approved:true, wants_referee:true, wants_scorer:true, wants_manager:false, wants_coach:false }, admin)).status, 200);
   const login = await worker.fetch(post('auth/login', data), env);
   assert.equal(login.status, 200);
   assert.match(login.headers.get('set-cookie'), /Max-Age=34560000/);
@@ -818,4 +818,20 @@ test('riconoscimento personale permanente, rinnovo vecchio accesso, uscita e PAT
   const patty=await worker.fetch(post('auth/login',{admin:true,password:'TEST-only-password-123'}),env);
   assert.match(patty.headers.get('set-cookie'),/Max-Age=1800/);
   db.close();
+});
+
+test('dirigente e allenatore accedono senza approvazione e possono prenotare',async()=>{
+ const db=new LocalD1(),env=envFor(db);await game(db);
+ for(const [name,flag,role] of [['DIRIGENTE','wants_manager','referee'],['ALLENATORE','wants_coach','scorer']]){
+  const p={first_name:'TEST',last_name:name,password:'A123',wants_referee:false,wants_scorer:false,wants_manager:flag==='wants_manager',wants_coach:flag==='wants_coach',staging_consent:true};
+  const res=await worker.fetch(post('auth/register',p),env);assert.equal(res.status,200);
+  const person=await statement(db,'SELECT * FROM people WHERE last_name=?',name).first();
+  assert.equal(person.approved,1);assert.equal(person[flag],1);
+  assert.equal(person.wants_referee,0);assert.equal(person.wants_scorer,0);
+  const me=await worker.fetch(new Request('https://test.invalid/api/me',{headers:{Cookie:res.headers.get('set-cookie').split(';')[0]}}),env);
+  assert.equal((await me.json()).user[flag],true);
+  await assign(db,GAME.game_key,role,1,person.id);
+ }
+ assert.equal((await statement(db,'SELECT count(*) n FROM assignments').first()).n,2);
+ db.close();
 });

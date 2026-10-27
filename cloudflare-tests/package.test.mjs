@@ -19,7 +19,7 @@ test('pacchetto connettore: Worker singolo, hash verificabili, D1 vuoto senza da
   assert.equal(manifest.bindings.find((b) => b.name === 'REGISTRATION_ENABLED').value, 'false');
   assert.ok(!/^import\s/m.test(worker));
   assert.equal((worker.match(/^export default/gm) || []).length, 1);
-  assert.equal(manifest.migrations.length, 6);
+  assert.equal(manifest.migrations.length, 7);
   assert.equal(queries.length, manifest.statements.count);
   const db = new DatabaseSync(':memory:');
   for (const q of queries) {
@@ -30,7 +30,7 @@ test('pacchetto connettore: Worker singolo, hash verificabili, D1 vuoto senza da
   assert.equal(db.prepare('SELECT count(*) n FROM games').get().n, 0);
   assert.equal(db.prepare('SELECT count(*) n FROM people').get().n, 0);
   assert.equal(db.prepare('SELECT count(*) n FROM assignments').get().n, 0);
-  assert.equal(db.prepare('SELECT max(version) v FROM schema_migrations').get().v, 6);
+  assert.equal(db.prepare('SELECT max(version) v FROM schema_migrations').get().v, 7);
   db.close();
 });
 

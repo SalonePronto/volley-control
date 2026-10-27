@@ -144,7 +144,7 @@ test('frontend → API: login personale, Mi prenoto, nominativo e annullamento',
     await saveGame(u.db, GAME, GAME, {});
     await statement(
       u.db,
-      'INSERT INTO people VALUES(?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO people(id,email,first_name,last_name,password_hash,wants_referee,wants_scorer,approved,created_at) VALUES(?,?,?,?,?,?,?,?,?)',
       'TEST-ui-person',
       (await sha(JSON.stringify(['test','utente']))) + '@example.invalid',
       'TEST',
@@ -231,10 +231,22 @@ test('Registrazione senza email e con codice 4 caratteri', async () => {
     assert.equal(area.querySelector('[name="email"]'), null);
     const f=area.querySelector('form[data-form="register"]');
     assert.equal(f.elements.namedItem('password').maxLength,4);
+    assert.ok(f.elements.namedItem('wants_manager'));
+    assert.ok(f.elements.namedItem('wants_coach'));
     await u.submit('form[data-form="register"]', {
       first_name:'MARIO',last_name:'COLLAUDO',password:'A123',
       wants_referee:true,wants_scorer:true,staging_consent:true,
     });
     assert.equal((await statement(u.db,'SELECT count(*) n FROM people').first()).n,1);
   } finally {u.dom.window.close();u.db.close();}
+});
+
+test('dirigente registrato automaticamente e prenotazione accessibile',async()=>{
+ const u=await setup();try{
+ await saveGame(u.db,GAME,GAME,{});await u.start();await u.click('#access');
+ await u.submit('form[data-form="register"]',{first_name:'TEST',last_name:'DIRIGENTE',password:'D123',wants_manager:true,staging_consent:true});
+ assert.equal((await statement(u.db,"SELECT approved FROM people WHERE last_name='DIRIGENTE'").first()).approved,1);
+ assert.equal(u.w.document.querySelector('#identity').textContent,'TEST DIRIGENTE');
+ await u.click('[data-open]');assert.equal(u.w.document.querySelector('[data-book][data-role="referee"]').disabled,false);
+ }finally{u.dom.window.close();u.db.close();}
 });
