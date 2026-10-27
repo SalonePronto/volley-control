@@ -271,12 +271,13 @@ function render() {
 function rowHTML(g) {
   const t = state.teams.find((t) => t.id === g.team_id) || {},
     cat = g.category.match(/\bU\s*\d+/i)?.[0].replace(/\s/g, '') || g.category,
+    longCat = cat.length > 5,
     st = status(g),
     side = g.is_home ? 'CASA' : 'TRASFERTA',
     weekday = new Intl.DateTimeFormat('it-IT', { weekday: 'short', timeZone: 'UTC' }).format(
       new Date(g.date + 'T12:00:00Z'),
     );
-  return `<article class="fixture" data-game-key="${esc(g.game_key)}"><div class="block category"><strong>${esc(cat)}</strong><span>${esc(g.source)}</span><small>N. ${esc(g.game_number || '—')}</small></div><div class="block date"><span>${esc(weekday)} ${shortDate(g.date)}</span><span>${esc(g.time)}</span><small>${side}</small></div><div class="block match"><span title="${esc(g.home_team)}">${esc(g.home_team)}</span><span title="${esc(g.away_team)}">${esc(g.away_team)}${g.played ? ' · ' + g.home_sets + '–' + g.away_sets : ''}</span><span title="${esc(g.venue + ' · ' + g.address)}">${esc(g.venue)} · ${esc(g.address)}</span></div><div class="block staff"><div><span>ALL. ${esc(t.coach1 || '—')}</span>${t.coach2 ? '<span>' + esc(t.coach2) + '</span>' : ''}</div><div><span class="managers">DIR. ${esc(t.managers?.replace(/\n/g, ', ') || '—')}</span></div></div><div class="block roles">${
+  return `<article class="fixture" data-game-key="${esc(g.game_key)}"><div class="block category${longCat ? ' category--long' : ''}"><strong>${esc(cat)}</strong><span>${esc(g.source)}</span><small>N. ${esc(g.game_number || '—')}</small></div><div class="block date"><span>${esc(weekday)} ${shortDate(g.date)}</span><span>${esc(g.time)}</span><small>${side}</small></div><div class="block match"><span title="${esc(g.home_team)}">${esc(g.home_team)}</span><span title="${esc(g.away_team)}">${esc(g.away_team)}${g.played ? ' · ' + g.home_sets + '–' + g.away_sets : ''}</span><span title="${esc(g.venue + ' · ' + g.address)}">${esc(g.venue)} · ${esc(g.address)}</span></div><div class="block staff"><div><span>ALL. ${esc(t.coach1 || '—')}</span>${t.coach2 ? '<span>' + esc(t.coach2) + '</span>' : ''}</div><div><span class="managers">DIR. ${esc(t.managers?.replace(/\n/g, ', ') || '—')}</span></div></div><div class="block roles">${
     g.is_home
       ? Object.entries(ROLES)
           .map(
