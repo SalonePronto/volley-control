@@ -835,3 +835,36 @@ test('dirigente e allenatore accedono senza approvazione e possono prenotare',as
  assert.equal((await statement(db,'SELECT count(*) n FROM assignments').first()).n,2);
  db.close();
 });
+
+test('WebSocket event is pushed only after a successful booking or cancellation', async () => {
+  const db = new LocalD1(), env = envFor(db);
+  const { default: defaultHandler } = await import('../worker/index.mjs');
+  const personId = await addPerson(db, 'TEST-ws-person');
+  await game(db);
+  const session = await userSession(db, personId);
+  let sent = 0, notifications = [];
+  env.LIVE_SYNC = { idFromName(name) { assert.equal(name, 'calendar'); return 'room'; },
+    get(id) { assert.equal(id, 'room'); return { fetch() { sent++; return Promise.resolve(new Response(null, { status: 204 })); } }; } };
+  const pending = [];
+  const ctx = { waitUntil(p) { pending.push(p); } };
+  let response = await defaultHandler.fetch(post('book', {
+    game_key: GAME.game_key, role: 'referee', slot: 1
+  }, session.cookie, session.csrf), env, ctx);
+  assert.equal(response.status, 201);
+  await Promise.all(pending.splice(0));
+  assert.equal(sent, 1);
+  response = await defaultHandler.fetch(post('book', {
+    game_key: GAME.game_key, role: 'referee', slot: 1
+  }, session.cookie, session.csrf), env, ctx);
+  assert.equal(response.status, 409);
+  await Promise.all(pending.splice(0));
+  assert.equal(sent, 1);
+  response = await defaultHandler.fetch(post('cancel', {
+    game_key: GAME.game_key, role: 'referee', slot: 1
+  }, session.cookie, session.csrf), env, ctx);
+  assert.equal(response.status, 200);
+  await Promise.all(pending.splice(0));
+  assert.equal(sent, 2);
+  assert.equal((await statement(db, 'SELECT count(*) n FROM assignments').first()).n, 0);
+  db.close();
+});

@@ -14,7 +14,7 @@ import {
   validateTeam,
   EDITABLE,
 } from './domain.mjs';
-export const RELEASE = 'cf-staging-2026-10-27.6';
+export const RELEASE = 'cf-staging-2026-10-27.7';
 const enc = new TextEncoder();
 const hex = (buffer) =>
   Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -690,6 +690,34 @@ export async function recoveryStep(db, id) {
   return { done, offset, total: rows.length };
 }
 
+// WebSocket Hibernation: una stanza condivisa da tutti i dispositivi VOLLEY CONTROL.
+ // Il Durable Object inoltra soltanto un segnale, mai dati personali o credenziali.
+export class VolleyLiveSync {
+  constructor(state, env) { this.state = state; }
+  async fetch(req) {
+    const pathname = new URL(req.url).pathname;
+    if (pathname === '/publish' && req.method === 'POST') {
+      for (const socket of this.state.getWebSockets()) {
+        try { socket.send('{"type":"calendar-changed"}'); } catch {}
+      }
+      return new Response(null, { status: 204 });
+    }
+    if (pathname !== '/api/sync' || req.method !== 'GET' ||
+        req.headers.get('Upgrade')?.toLowerCase() !== 'websocket')
+      return new Response('Not found', { status: 404 });
+    const [client, server] = Object.values(new WebSocketPair());
+    this.state.acceptWebSocket(server);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+  async webSocketMessage(ws, message) {
+    // Il client non invia modifiche: tutto passa dalle API e dal DB.
+    if (message === 'ping') ws.send('pong');
+  }
+  async webSocketClose(ws, code, reason) {
+    try { ws.close(code, reason); } catch {}
+  }
+}
+
 async function route(req, env) {
   const url = new URL(req.url),
     path = url.pathname;
@@ -704,6 +732,13 @@ async function route(req, env) {
     });
   }
   if (!env.DB) fail('Database non configurato.', 503);
+  if (path === '/api/sync' && req.method === 'GET') {
+    if (req.headers.get('Upgrade')?.toLowerCase() !== 'websocket' ||
+        req.headers.get('Origin') !== url.origin)
+      fail('Connessione in tempo reale non autorizzata.', 403);
+    if (!env.LIVE_SYNC) fail('Sincronizzazione non configurata.', 503);
+    return env.LIVE_SYNC.get(env.LIVE_SYNC.idFromName('calendar')).fetch(req);
+  }
   if (
     env.RECOVERY_MODE === 'true' &&
     ![
@@ -1208,7 +1243,26 @@ export default {
     } catch (e) {
       res = json({ error: e.status ? e.message : dbMessage(e) }, e.status || 500);
     }
-    if (rawDB && new URL(req.url).pathname.startsWith('/api/') && ctx?.waitUntil) {
+    // Avvisa gli altri dispositivi soltanto DOPO una modifica riuscita.
+    // Se il servizio realtime è momentaneamente indisponibile, la prenotazione resta salvata.
+    const path = new URL(req.url).pathname;
+    if (
+      req.method === 'POST' && res.ok && env.LIVE_SYNC && ctx?.waitUntil &&
+      (['/api/book', '/api/cancel', '/api/admin/assign',
+        '/api/admin/fixed', '/api/admin/fixed/apply',
+        '/api/admin/game', '/api/admin/override/reset',
+        '/api/admin/manual', '/api/admin/team'].includes(path) ||
+        path.startsWith('/api/admin/sync/'))
+    ) {
+      ctx.waitUntil(
+        Promise.resolve()
+          .then(() => env.LIVE_SYNC.get(env.LIVE_SYNC.idFromName('calendar'))
+            .fetch('https://volley-sync.internal/publish', { method: 'POST' }))
+          .catch(() => {}),
+      );
+    }
+    if (res.status === 101) return res;
+    if (rawDB && path.startsWith('/api/') && ctx?.waitUntil) {
       ctx.waitUntil(
         statement(
           rawDB,

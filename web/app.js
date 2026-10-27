@@ -104,6 +104,73 @@ async function api(path, data) {
   if (!res.ok) throw new Error(result.error || 'Operazione non riuscita.');
   return result;
 }
+// Eventi reali: nessun controllo a intervalli del database.
+let liveSocket = null, liveRetryTimer = null, liveRetryCount = 0;
+let liveRefreshing = false, livePending = false;
+async function refreshLiveCalendar() {
+  if (document.hidden) { livePending = true; return; }
+  if (liveRefreshing) { livePending = true; return; }
+  liveRefreshing = true;
+  try {
+    do {
+      livePending = false;
+      const c = await api('calendar');
+      state = { ...state, ...c };
+      if (state.user?.admin) state.admin = await api('admin/state');
+      render();
+      // La scheda di gara resta aggiornata, senza interrompere una conferma in corso.
+      if ($('#dialog').open && currentGame && !$('#action-confirmation') && !state.user?.admin)
+        await showGame(currentGame);
+    } while (livePending && !document.hidden);
+  } catch (error) {
+    // La prossima riapertura o riconnessione recupera lo stato dal database.
+    livePending = true;
+  } finally {
+    liveRefreshing = false;
+  }
+}
+function connectLive() {
+  if (document.hidden || typeof WebSocket === 'undefined' ||
+      (liveSocket && liveSocket.readyState <= WebSocket.OPEN)) return;
+  if (liveRetryTimer) { clearTimeout(liveRetryTimer); liveRetryTimer = null; }
+  const socket = new WebSocket(
+    (location.protocol === 'https:' ? 'wss://' : 'ws://') +
+    location.host + '/api/sync',
+  );
+  liveSocket = socket;
+  socket.onopen = () => {
+    if (socket !== liveSocket) return;
+    liveRetryCount = 0;
+    refreshLiveCalendar();
+  };
+  socket.onmessage = (event) => {
+    if (event.data === '{"type":"calendar-changed"}') refreshLiveCalendar();
+  };
+  socket.onerror = () => socket.close();
+  socket.onclose = () => {
+    if (liveSocket !== socket) return;
+    liveSocket = null;
+    if (!document.hidden) {
+      const delay = Math.min(30000, 1000 * 2 ** Math.min(liveRetryCount++, 5));
+      liveRetryTimer = setTimeout(connectLive, delay);
+    }
+  };
+}
+function suspendLive() {
+  if (liveRetryTimer) { clearTimeout(liveRetryTimer); liveRetryTimer = null; }
+  if (liveSocket) {
+    const socket = liveSocket;
+    liveSocket = null;
+    socket.close();
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) suspendLive();
+  else { refreshLiveCalendar(); connectLive(); }
+});
+window.addEventListener('focus', () => {
+  if (!document.hidden) refreshLiveCalendar();
+});
 async function load() {
   const [me, c] = await Promise.all([api('me'), api('calendar')]);
   state = { ...state, ...me, ...c };
@@ -627,4 +694,4 @@ document.addEventListener('click', async (e) => {
     b.disabled = false;
   }
 });
-load().catch((e) => notice(e.message));
+load().then(connectLive).catch((e) => notice(e.message));
