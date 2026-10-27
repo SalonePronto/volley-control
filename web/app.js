@@ -384,6 +384,18 @@ function renderAdmin() {
           data-approved="${p.approved ? 'false' : 'true'}">${p.approved ? 'Disattiva account' : 'Riattiva account'}</button>
       </div>`;
     }).join('') || '<p>Nessuna persona registrata.</p>') + '</details>';
+  const roster=a.roster||[];
+  html += '<details><summary>Archivio 21 squadre · ' + roster.filter(x=>x.linked_team_id).length +
+    ' collegate</summary><p class="notice">Solo le squadre collegate a un identificativo ufficiale partecipano agli aggiornamenti. Le modifiche agli allenatori e dirigenti si propagano a tutte le partite della squadra.</p>' +
+    '<p><button type="button" data-roster-pgs>Trova e collega le squadre PGS</button></p>' +
+    roster.map(r=>`<details class="card"><summary>${r.id}. ${esc(r.category)} ${esc(r.source)} · ${esc(r.name)} · ${r.linked_team_id?'Collegata':'Da collegare'}</summary>
+      ${r.linked_team_id?`<p class="notice">Nome ufficiale: ${esc(r.official_name)} · ${esc(r.official_group||'')}</p>`:'<p class="notice">Identificativo ufficiale ancora da verificare.</p>'}
+      <form data-form="roster-staff" data-id="${r.id}">
+        <div class="grid">${field('Allenatore 1','coach1',r.coach1)}${field('Allenatore 2','coach2',r.coach2)}</div>
+        <label class="field">Dirigenti<textarea name="managers">${esc(r.managers)}</textarea></label><button>Salva staff</button>
+      </form>
+      ${!r.linked_team_id&&r.source==='FIPAV'?`<form data-form="roster-fipav" data-id="${r.id}">${field('Codice girone FIPAV','group_id','','text',true)}<button>Verifica e collega il calendario</button></form>`:''}
+    </details>`).join('')+'</details>';
   html +=
     '<details><summary>Squadre · Staff · Nomi brevi · Incarichi FISSI</summary>' +
     a.teams
@@ -550,6 +562,12 @@ async function submit(f) {
       if (r.game.date) state.week = weekOf(r.game.date);
       break;
     }
+    case 'roster-staff':
+      await api('admin/roster/staff',{id:Number(f.dataset.id),coach1:b.coach1,coach2:b.coach2,managers:b.managers});
+      break;
+    case 'roster-fipav':
+      await api('admin/roster/fipav-link',{id:Number(f.dataset.id),group_id:b.group_id});
+      break;
     case 'team':
       await api('admin/team', { ...b, id: f.dataset.id || undefined, active: !!b.active });
       break;
@@ -675,6 +693,12 @@ document.addEventListener('click', async (e) => {
       await load();
       await showGame(b.dataset.game);
       notice(b.dataset.action === 'book' ? 'Prenotazione confermata.' : 'Prenotazione annullata.', true);
+    } else if (b.hasAttribute('data-roster-pgs')) {
+      b.disabled=true;
+      const result=await api('admin/roster/pgs-search',{});
+      await load();
+      notice('PGS: ' + result.linked.length + ' collegate; ' +
+        result.pending.length + ' ancora da verificare.');
     } else if (b.hasAttribute('data-person-access')) {
       const approved = b.dataset.approved === 'true';
       if (!confirm('Vuoi ' + (approved ? 'riattivare' : 'disattivare') + ' questo account?')) return;

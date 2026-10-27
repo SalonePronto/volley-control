@@ -322,3 +322,14 @@ test('PATTY mostra registrati senza salvataggio o modifica dei ruoli',async()=>{
    assert.ok(u.w.document.querySelector('[data-person-access="TEST-access"]'));
  }finally{u.dom.window.close();u.db.close();}
 });
+
+test('PATTY vede archivio delle 21 squadre e salva staff collegato',async()=>{
+ const u=await setup();
+ try {
+  await u.start();await u.click('#patty');
+  await u.submit('form[data-form="login"]',{password});
+  assert.equal(u.w.document.querySelectorAll('form[data-form="roster-staff"]').length,21);
+  await u.submit('form[data-form="roster-staff"][data-id="12"]',{coach1:'NUOVA',coach2:'SIMONE',managers:'FEDERICO'});
+  assert.equal((await statement(u.db,"SELECT coach1 FROM teams WHERE id='FIPAV:229693'").first()).coach1,'NUOVA');
+ } finally {u.dom.window.close();u.db.close();}
+});

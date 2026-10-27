@@ -922,3 +922,22 @@ test('PATTY disattiva/riattiva senza modificare i ruoli',async()=>{
  assert.equal((await statement(db,'SELECT count(*) n FROM sessions WHERE person_id=?',id).first()).n,0);
  db.close();
 });
+
+test('Archivio da 21 schede: identità distinte U13/U12 e staff condiviso',async()=>{
+ const db=new LocalD1(),env=envFor(db),patty=await loginAdmin(env);
+ const rows=(await statement(db,'SELECT * FROM team_roster ORDER BY id').all()).results;
+ assert.equal(rows.length,21);
+ assert.equal(rows.filter(x=>x.linked_team_id).length,3);
+ assert.equal(rows[17].name,rows[18].name);
+ assert.notEqual(rows[17].category,rows[18].category);
+ assert.equal(rows[8].coach1,'CRISTINA');
+ assert.equal(rows[11].coach1,'CRISTINA');
+ assert.equal((await statement(db,"SELECT coach1 FROM teams WHERE id='FIPAV:229693'").first()).coach1,'CRISTINA');
+ const r=await call(env,'admin/roster/staff',{id:12,coach1:'NUOVA',coach2:'SIMONE',managers:'FEDERICO'},patty);
+ assert.equal(r.status,200);
+ assert.equal((await statement(db,"SELECT coach1 FROM teams WHERE id='FIPAV:229693'").first()).coach1,'NUOVA');
+ const q=await call(env,'admin/roster/staff',{id:19,coach1:'ALICE',coach2:'',managers:'ANGELICA'},patty);
+ assert.equal(q.status,200);
+ assert.equal((await statement(db,'SELECT linked_team_id FROM team_roster WHERE id=19').first()).linked_team_id,null);
+ db.close();
+});

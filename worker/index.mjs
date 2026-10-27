@@ -14,7 +14,7 @@ import {
   validateTeam,
   EDITABLE,
 } from './domain.mjs';
-export const RELEASE = 'cf-staging-2026-10-27.9';
+export const RELEASE = 'cf-staging-2026-10-27.10';
 const enc = new TextEncoder();
 const hex = (buffer) =>
   Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -416,6 +416,16 @@ async function fetchJSON(url, fetcher = fetch) {
     fail('La fonte non ha restituito un calendario valido.', 502);
   }
 }
+
+const rosterNameKey = (s) => clean(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+  .toUpperCase().replace(/[^A-Z0-9]/g,'');
+const rosterCategoryKey = (s) => {
+  const v=clean(s).toUpperCase().replace(/UNDER[\s-]*/g,'U');
+  const age=v.match(/\bU\s*(\d+)\b/);
+  return age ? 'U'+age[1] : v.replace(/[^A-Z0-9]/g,'');
+};
+const rosterMatch = (r,c) => rosterNameKey(r.name)===rosterNameKey(c.name) &&
+  rosterCategoryKey(r.category)===rosterCategoryKey(c.category);
 export async function syncScope(env, scope, resultsOnly = false) {
   const teams = (await all(env.DB, 'SELECT * FROM teams WHERE active=1')).filter(
     (t) => scopeFor(t) === scope,
@@ -951,10 +961,89 @@ async function route(req, env) {
         env.DB,
         'SELECT id,first_name,last_name,wants_referee,wants_scorer,wants_manager,wants_coach,approved,created_at FROM people ORDER BY last_name,first_name',
       ),
+      roster: await all(env.DB, 'SELECT r.*,t.name AS official_name,t.group_id AS official_group FROM team_roster r LEFT JOIN teams t ON t.id=r.linked_team_id ORDER BY r.id'),
       fixed: await all(env.DB, 'SELECT * FROM team_fixed'),
       sync: await all(env.DB, 'SELECT * FROM sync_runs'),
       conflicts: await all(env.DB, 'SELECT * FROM import_conflicts'),
     });
+  if (path === '/api/admin/roster/staff' && req.method === 'POST') {
+    const b=await body(req),id=Number(b.id);
+    if(!Number.isInteger(id)||id<1||id>21) fail('Scheda squadra non valida.');
+    const r=await one(env.DB,'SELECT * FROM team_roster WHERE id=?',id);
+    if(!r) fail('Scheda non trovata.',404);
+    for(const k of ['coach1','coach2','managers'])
+      if(typeof b[k]!=='string'||b[k].length>1000) fail('Dato staff non valido.');
+    const vals=['coach1','coach2','managers'].map(k=>clean(b[k]));
+    await env.DB.batch([
+      statement(env.DB,'UPDATE team_roster SET coach1=?,coach2=?,managers=? WHERE id=?',...vals,id),
+      ...(r.linked_team_id?[statement(env.DB,
+        'UPDATE teams SET coach1=?,coach2=?,managers=? WHERE id=?',...vals,r.linked_team_id)]:[]),
+      audit(env.DB,actor,'roster_staff_changed',null,{roster_id:id,linked_team_id:r.linked_team_id})
+    ]);
+    return json({ok:true});
+  }
+  if (path === '/api/admin/roster/pgs-search' && req.method === 'POST') {
+    const roster=await all(env.DB,"SELECT * FROM team_roster WHERE source='PGS' AND linked_team_id IS NULL ORDER BY id");
+    if(!roster.length) return json({ok:true,linked:[],pending:[]});
+    const official=await fetchJSON('https://volley.pgsmilano.org/api/iscrizioni/campionato/invernale_2026-2027',env.FETCH||fetch);
+    if(!Array.isArray(official)) fail('Elenco iscrizioni PGS non valido: nessun dato modificato.',502);
+    const seen=new Set(),linked=[],pending=[];
+    for(const r of roster) {
+      const found=official.filter(o=>rosterMatch(r,{name:o.nomeSquadra,category:o.categoria})&&clean(o.id||o._id));
+      if(found.length!==1) {pending.push({id:r.id,reason:found.length?'Ambiguità':'Non trovata'});continue;}
+      const item=found[0],officialId=clean(item.id||item._id);
+      if(seen.has(officialId)||
+         await one(env.DB,'SELECT 1 FROM team_roster WHERE linked_team_id=?','PGS:'+officialId)) {
+        pending.push({id:r.id,reason:'Identificativo già usato'});continue;
+      }
+      seen.add(officialId);
+      const teamId='PGS:'+officialId;
+      try {
+        await env.DB.batch([
+          statement(env.DB,
+            'INSERT OR IGNORE INTO teams(id,source,season,competition,group_id,official_team_id,name,category,short_name,coach1,coach2,managers,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1)',
+            teamId,'PGS',r.season,'invernale_2026-2027',clean(item.girone),
+            officialId,clean(item.nomeSquadra),clean(item.categoria),r.name.slice(0,40),
+            r.coach1,r.coach2,r.managers),
+          statement(env.DB,'UPDATE team_roster SET linked_team_id=? WHERE id=? AND linked_team_id IS NULL',
+            teamId,r.id),
+          audit(env.DB,actor,'roster_linked',null,{roster_id:r.id,team_id:teamId})
+        ]);
+        linked.push({id:r.id,name:r.name});
+      } catch(e) {pending.push({id:r.id,reason:'Conflitto di collegamento'});}
+    }
+    return json({ok:true,linked,pending});
+  }
+  if (path === '/api/admin/roster/fipav-link' && req.method === 'POST') {
+    const b=await body(req),r=await one(env.DB,'SELECT * FROM team_roster WHERE id=?',Number(b.id));
+    if(!r||r.source!=='FIPAV'||r.linked_team_id) fail('Scheda FIPAV non collegabile.',409);
+    const group=clean(b.group_id);
+    if(!/^\d{1,10}$/.test(group)) fail('Indica il codice numerico del girone FIPAV.');
+    const payload=await fetchJSON('https://data.fipavonline.it/api/v2/calendar/0/'+group,env.FETCH||fetch);
+    const games=(payload.data||payload).matches;
+    if(!Array.isArray(games)) fail('Formato calendario FIPAV non valido.',502);
+    const found=new Map();
+    for(const g of games) for(const team of [g.team1,g.team2]) {
+      if(team?.id&&rosterNameKey(team.title)===rosterNameKey(r.name))
+        found.set(String(team.id),clean(team.title));
+    }
+    if(found.size!==1) fail('Identità non univoca: verifica codice del girone e nome.',409);
+    const [officialId,name]=[...found][0],teamId='FIPAV:'+officialId;
+    const duplicate=await one(env.DB,'SELECT id FROM team_roster WHERE linked_team_id=?',teamId);
+    if(duplicate) fail('Identificativo già assegnato a un’altra squadra.',409);
+    const existing=await one(env.DB,'SELECT id,group_id,category FROM teams WHERE id=?',teamId);
+    if(existing&&(existing.group_id!==group||rosterCategoryKey(existing.category)!==rosterCategoryKey(r.category)))
+      fail('Identificativo collegato a un girone o categoria differente.',409);
+    await env.DB.batch([
+      statement(env.DB,
+        'INSERT OR IGNORE INTO teams(id,source,season,competition,group_id,official_team_id,name,category,short_name,coach1,coach2,managers,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1)',
+        teamId,'FIPAV',r.season,'',group,officialId,name,r.category,r.name.slice(0,40),
+        r.coach1,r.coach2,r.managers),
+      statement(env.DB,'UPDATE team_roster SET linked_team_id=? WHERE id=? AND linked_team_id IS NULL',teamId,r.id),
+      audit(env.DB,actor,'roster_linked',null,{roster_id:r.id,team_id:teamId})
+    ]);
+    return json({ok:true,team_id:teamId});
+  }
   if (path === '/api/admin/person' && req.method === 'POST') {
     const b = await body(req);
     if (!b || Object.keys(b).sort().join(',') !== 'approved,id' ||
@@ -1005,6 +1094,7 @@ async function route(req, env) {
           'active',
         ].map((k) => t[k]),
       ),
+      statement(env.DB,'UPDATE team_roster SET coach1=?,coach2=?,managers=? WHERE linked_team_id=?',t.coach1,t.coach2,t.managers,id),
       audit(env.DB, actor, 'team_saved', null, { id }),
     ]);
     return json({ ok: true, id });
@@ -1238,7 +1328,9 @@ export default {
       (['/api/book', '/api/cancel', '/api/admin/assign',
         '/api/admin/fixed', '/api/admin/fixed/apply',
         '/api/admin/game', '/api/admin/override/reset',
-        '/api/admin/manual', '/api/admin/team', '/api/admin/person'].includes(path) ||
+        '/api/admin/manual', '/api/admin/team', '/api/admin/person',
+        '/api/admin/roster/staff','/api/admin/roster/pgs-search',
+        '/api/admin/roster/fipav-link'].includes(path) ||
         path.startsWith('/api/admin/sync/'))
     ) {
       ctx.waitUntil(
