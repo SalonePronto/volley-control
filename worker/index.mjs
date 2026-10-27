@@ -14,7 +14,7 @@ import {
   validateTeam,
   EDITABLE,
 } from './domain.mjs';
-export const RELEASE = 'cf-staging-2026-10-27.4';
+export const RELEASE = 'cf-staging-2026-10-27.5';
 const enc = new TextEncoder();
 const hex = (buffer) =>
   Array.from(new Uint8Array(buffer), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -112,12 +112,20 @@ async function body(req) {
     fail('JSON non valido.');
   }
 }
-export async function authenticate(req, env) {
-  const token = (req.headers.get('cookie') || '')
+// Riconoscimento continuo sullo stesso dispositivo, fino a Esci o revoca PATTY.
+// I browser possono limitare i cookie a 400 giorni: li rinnoviamo a ogni apertura.
+const PERSONAL_COOKIE_SECONDS = 400 * 24 * 60 * 60;
+const PERSONAL_SESSION_EXPIRES = 253402300799000; // fine anno 9999
+const sessionCookie = (token, seconds) =>
+  `__Host-vc=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${seconds}`;
+const sessionToken = (req) =>
+  (req.headers.get('cookie') || '')
     .split(';')
     .map((s) => s.trim())
     .find((s) => s.startsWith('__Host-vc='))
     ?.slice(10);
+export async function authenticate(req, env) {
+  const token = sessionToken(req);
   if (!token) return null;
   const s = await one(
     env.DB,
@@ -149,7 +157,7 @@ async function throttle(env, req, label, max = 8) {
 async function sessionReply(env, person_id, isAdmin) {
   const token = random(),
     csrfToken = random();
-  const expires = Date.now() + (isAdmin ? 1800000 : 8 * 3600000);
+  const expires = isAdmin ? Date.now() + 1800000 : PERSONAL_SESSION_EXPIRES;
   await env.DB.batch([
     statement(env.DB, 'DELETE FROM sessions WHERE expires_at<?', Date.now()),
     statement(env.DB, 'DELETE FROM attempts WHERE expires_at<?', Date.now()),
@@ -164,7 +172,7 @@ async function sessionReply(env, person_id, isAdmin) {
     ),
   ]);
   return json({ ok: true, csrf: csrfToken, admin: isAdmin }, 200, {
-    'Set-Cookie': `__Host-vc=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${isAdmin ? 1800 : 28800}`,
+    'Set-Cookie': sessionCookie(token, isAdmin ? 1800 : PERSONAL_COOKIE_SECONDS),
   });
 }
 export function gameValues(g, scope, official, overrides = {}, sourceMissing = 0) {
@@ -728,7 +736,19 @@ async function route(req, env) {
       persistent: true,
     });
   }
-  if (path === '/api/me' && req.method === 'GET')
+  if (path === '/api/me' && req.method === 'GET') {
+    const headers = {};
+    if (s && !s.admin) {
+      // Converte anche le vecchie sessioni di 8 ore, se non sono scadute.
+      if (s.expires_at !== PERSONAL_SESSION_EXPIRES)
+        await statement(
+          env.DB,
+          'UPDATE sessions SET expires_at=? WHERE token_hash=? AND admin=0',
+          PERSONAL_SESSION_EXPIRES,
+          s.token_hash,
+        ).run();
+      headers['Set-Cookie'] = sessionCookie(sessionToken(req), PERSONAL_COOKIE_SECONDS);
+    }
     return json({
       user: s
         ? {
@@ -744,7 +764,8 @@ async function route(req, env) {
       registration_enabled: env.REGISTRATION_ENABLED === 'true',
       patty_pin_set: !!(await one(env.DB, "SELECT value FROM settings WHERE key='patty_pin_hash'")),
       staging: env.ENVIRONMENT !== 'production',
-    });
+    }, 200, headers);
+  }
   if (path === '/api/calendar' && req.method === 'GET') {
     const data = await calendar(env.DB);
     data.games = data.games.filter((g) => !g.hidden);

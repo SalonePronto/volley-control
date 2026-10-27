@@ -791,3 +791,31 @@ test('PATTY: passa al codice corto, vecchia password non utilizzabile',async()=>
  assert.equal((await call(env,'auth/login',{admin:true,password:'A123'})).status,200);
  db.close();
 });
+
+test('riconoscimento personale permanente, rinnovo vecchio accesso, uscita e PATTY separata', async () => {
+  const db = new LocalD1(), env = envFor(db), admin = await loginAdmin(env);
+  const data = { first_name:'LUCA', last_name:'PROVA', password:'L123', wants_referee:true, wants_scorer:true, staging_consent:true };
+  assert.equal((await call(env, 'auth/register', data)).status, 201);
+  const person = await statement(db, "SELECT id FROM people WHERE first_name='LUCA'").first();
+  assert.equal((await call(env, 'admin/person', { id:person.id, approved:true, wants_referee:true, wants_scorer:true }, admin)).status, 200);
+  const login = await worker.fetch(post('auth/login', data), env);
+  assert.equal(login.status, 200);
+  assert.match(login.headers.get('set-cookie'), /Max-Age=34560000/);
+  const cookie=login.headers.get('set-cookie').split(';')[0];
+  assert.equal((await statement(db,'SELECT expires_at FROM sessions WHERE person_id=?',person.id).first()).expires_at,253402300799000);
+  await statement(db,'UPDATE sessions SET expires_at=? WHERE person_id=?',Date.now()+60000,person.id).run();
+  const me=await worker.fetch(new Request('https://test.invalid/api/me',{headers:{Cookie:cookie}}),env);
+  const payload=await me.json();
+  assert.equal(payload.user.first_name,'LUCA');
+  assert.match(me.headers.get('set-cookie'),/Max-Age=34560000/);
+  assert.equal((await statement(db,'SELECT expires_at FROM sessions WHERE person_id=?',person.id).first()).expires_at,253402300799000);
+  const second=await worker.fetch(new Request('https://test.invalid/api/me',{headers:{Cookie:cookie}}),env);
+  assert.equal((await second.json()).user.last_name,'PROVA');
+  const logout=await worker.fetch(post('auth/logout',{},cookie,payload.csrf),env);
+  assert.equal(logout.status,200);
+  const loggedOut=await worker.fetch(new Request('https://test.invalid/api/me',{headers:{Cookie:cookie}}),env);
+  assert.equal((await loggedOut.json()).user,null);
+  const patty=await worker.fetch(post('auth/login',{admin:true,password:'TEST-only-password-123'}),env);
+  assert.match(patty.headers.get('set-cookie'),/Max-Age=1800/);
+  db.close();
+});
