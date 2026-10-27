@@ -691,7 +691,7 @@ async function route(req, env) {
     return new Response(asset.body, {
       headers: {
         'Content-Type': asset.type,
-        'Cache-Control': path === '/' ? 'no-cache' : 'public, max-age=300',
+        'Cache-Control': 'no-cache',
       },
     });
   }
