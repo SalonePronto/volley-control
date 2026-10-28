@@ -481,3 +481,25 @@ html {
     touch-action: manipulation;
   }
 }
+
+/* Safari iPhone: la pagina non deve potersi spostare lateralmente.
+   Blocca il doppio-tocco di zoom, ma lascia disponibile lo zoom a due dita. */
+html, body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+  overscroll-behavior-x: none;
+  touch-action: manipulation;
+}
+@media (max-width: 700px) {
+  main, .layout, .side, #games, #weeks, .fixture, .mobile {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .week-pick {
+    min-width: 0;
+  }
+  #weeks .step {
+    flex: 0 0 44px;
+  }
+}
