@@ -236,6 +236,7 @@ function render() {
     `<button class="step" ${nextWeek ? `data-week="${nextWeek}"` : 'disabled'} aria-label="Settimana successiva">›</button>`;
   const w = state.week || weekOf(isoNow());
   $('#title').textContent = state.week ? weekLabel(w) : 'HOME · Gare casalinghe da coprire';
+  $('#title').classList.toggle('sr-only', !!state.week);
   let rows = games.filter((g) => weekOf(g.date) === w);
   if (!state.week)
     rows = rows.filter(
@@ -269,27 +270,30 @@ function render() {
   $('#summary').textContent =
     `${rows.length} gare · da coprire: ARB ${miss('referee')} · REF ${miss('scorer')}`;
   $('#games').innerHTML =
-    rows.map(rowHTML).join('') ||
+    rows.map((g, i) => rowHTML(g, i > 0 && rows[i - 1].date !== g.date)).join('') ||
     '<p class="notice">Nessuna gara da mostrare. Scegli una settimana per consultare tutte le partite.</p>';
   $('#admin').hidden = !state.user?.admin;
   if (state.user?.admin) renderAdmin();
 }
-function rowHTML(g) {
+function rowHTML(g, newDay = false) {
   const t = state.teams.find((t) => t.id === g.team_id) || {},
-    cat = g.category.match(/\bU\s*\d+/i)?.[0].replace(/\s/g, '') || g.category,
+    cat = (g.category.match(/\bU\s*\d+/i)?.[0].replace(/\s/g, '') || g.category).replace(/DIVISIONE/i, 'DIV.'),
     longCat = cat.length > 5,
     weekday = new Intl.DateTimeFormat('it-IT', { weekday: 'short', timeZone: 'UTC' }).format(
       new Date(g.date + 'T12:00:00Z'),
     ),
     day = weekday.charAt(0).toUpperCase() + weekday.slice(1),
-    result = g.played ? ' · ' + g.home_sets + '–' + g.away_sets : '',
+    score = g.played ? `<span class="score">${esc(g.home_sets + '–' + g.away_sets)}</span>` : '',
     who = [['referee', 'Arb'], ['scorer', 'Ref']]
       .filter(([r]) => names(g, r))
       .map(([r, l]) => l + ': ' + names(g, r))
       .join(' · '),
     whoHtml = who ? '<small class="who">' + esc(who) + '</small>' : '',
-    mark = (r, label) => `<span class="mark">${dot(g, r)}<small>${label}</small></span>`;
-  return `<article class="fixture${g.is_home ? '' : ' away'}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(day)} ${shortDate(g.date)}</b><em>${esc(g.time)}</em>${g.is_home ? '' : '<small>Trasferta</small>'}</span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}">${esc(g.home_team)} – ${esc(g.away_team)}${esc(result)}${whoHtml}</span><span class="seats">${mark('referee', 'Arb')}${mark('scorer', 'Ref')}</span></div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
+    mark = (r, label) => `<span class="mark">${dot(g, r)}<small>${label}</small></span>`,
+    seats = g.is_home
+      ? `<span class="seats">${mark('referee', 'Arb')}${mark('scorer', 'Ref')}</span>`
+      : '<span class="seats"><span class="tag-away">Trasferta</span></span>';
+  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(day)} ${shortDate(g.date)}</b><em>${esc(g.time)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
 }
 function modal(title, html) {
   $('#dialog-title').textContent = title;
@@ -334,10 +338,18 @@ async function showGame(key) {
         const data = `data-game="${esc(key)}" data-role="${r}" data-slot="${slot}"`;
         const isFederal = federal(g, r);
         const allowed = state.user && !state.user.admin && !g.source_missing && !isFederal;
-        seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${isFederal ? (r === 'referee' ? 'Arbitro federale' : 'Refertista federale') : a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${isFederal ? '' : a ? (state.user?.admin || (state.user?.id === a.person_id && a.source === 'self') ? `<button data-cancel ${data}>${state.user?.admin ? 'Rimuovi incarico' : 'Annulla la mia prenotazione'}</button>` : '') : `<button data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi dall’area personale per prenotarti'}">${allowed ? 'Mi prenoto' : 'Accedi per prenotarti'}</button>`}</div>`;
+        seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${isFederal ? (r === 'referee' ? 'Arbitro federale' : 'Refertista federale') : a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${isFederal ? '' : a ? (state.user?.admin || (state.user?.id === a.person_id && a.source === 'self') ? `<button data-cancel ${data}>${state.user?.admin ? 'Rimuovi incarico' : 'Annulla la mia prenotazione'}</button>` : '') : `<button data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi dall’area personale per prenotarti'}">${allowed ? (r === 'referee' ? 'Arbitro io' : 'Referto io') : 'Accedi per prenotarti'}</button>`}</div>`;
       }
   }
-  let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="grid">${card('Gara', g.game_number || 'Numero non presente', (g.is_home ? 'Casa' : 'Trasferta') + ' · ' + g.source)}${card('Palestra e indirizzo', g.venue, g.address)}${card('Staff squadra', t.coach1 || 'Da inserire', 'Secondo allenatore: ' + (t.coach2 || '—') + ' · Dirigenti: ' + (t.managers?.replace(/\n/g, ', ') || 'Da inserire'))}${card('Copertura', status(g), 'Arbitro: ' + (names(g, 'referee') || (g.is_home ? 'Da assegnare' : 'Non richiesto')) + ' · Refertista: ' + (names(g, 'scorer') || (g.is_home ? 'Da assegnare' : 'Non richiesto')))}</div>${g.venue || g.address ? `<a class="maps" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((g.venue || '') + ' ' + (g.address || ''))}" target="_blank" rel="noopener">Apri in Maps</a>` : ''}${card('Risultato', g.played ? g.home_sets + ' – ' + g.away_sets : 'Non ancora disponibile', (g.sets || []).map((s, i) => i + 1 + '° ' + s.home + '–' + s.away).join(' · '))}${g.notes ? card('Note', g.notes) : ''}`;
+  const addrParts = [g.venue, ...String(g.address || '').split(/\s+-\s+/)].map((x) => (x || '').trim()).filter(Boolean).slice(0, 3);
+  const mapsLink = addrParts.length
+    ? `<a class="maps pin" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((g.venue || '') + ' ' + (g.address || ''))}" target="_blank" rel="noopener" aria-label="Apri in Google Maps" title="Apri in Google Maps"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></a>`
+    : '';
+  const placeBlock = `<div class="place"><div class="place-text"><h3>Palestra e indirizzo</h3>${addrParts.map((x, i) => `<p class="${i ? 'addr' : 'venue'}">${esc(x)}</p>`).join('') || '<p class="venue">Da inserire</p>'}</div>${mapsLink}</div>`;
+  const staffLine = (label, value) => `<div class="staff-line"><small>${esc(label)}</small><p>${esc(value || '—')}</p></div>`;
+  const managers = String(t.managers || '').split(/\n+/).map((x) => x.trim()).filter(Boolean);
+  const staffBlock = `<div class="staff"><h3>Staff squadra</h3>${staffLine('Allenatore', t.coach1 || 'Da inserire')}${staffLine('Secondo allenatore', t.coach2)}${managers.length ? managers.map((m, i) => staffLine(i ? '' : managers.length > 1 ? 'Dirigenti' : 'Dirigente', m)).join('') : staffLine('Dirigenti', 'Da inserire')}</div>`;
+  let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="strip"><span>Gara <b>${esc(g.game_number || 'n. non presente')}</b></span><span class="pill ${g.is_home ? 'home' : 'away'}">${g.is_home ? 'Casa' : 'Trasferta'}</span><span>${esc(g.source)}</span></div>${placeBlock}${staffBlock}${card('Risultato', g.played ? g.home_sets + ' – ' + g.away_sets : 'Non ancora disponibile', (g.sets || []).map((s, i) => i + 1 + '° ' + s.home + '–' + s.away).join(' · '))}${g.notes ? card('Note', g.notes) : ''}`;
   if (state.user?.admin) {
     if (g.is_home) {
       html += `<section class="card"><h3>PATTY · Designazione federale</h3><form data-form="federal" data-key="${esc(key)}"><div class="actions">${check('Arbitro federale', 'federal_referee', federal(g, 'referee'))}${check('Refertista federale', 'federal_scorer', federal(g, 'scorer'))}</div><p class="notice">Federale: posto coperto e non prenotabile. Se già occupato, rimuovi prima l’incarico.</p><button class="primary">Salva scelta federali</button></form></section>`;
@@ -397,10 +409,12 @@ function renderAdmin() {
   const a = state.admin;
   if (!a) return;
   const pending = a.games.filter((g) => !g.date || !g.time);
-  let html = `<h2>PATTY · Comandi riservati</h2><div class="actions"><button data-sync="calendar" class="primary">↻ Aggiorna tutti i calendari</button><button data-sync="results">↻ Aggiorna tutti i risultati</button></div><p class="notice">Aggiorna tutte le squadre attive. Le gare non vengono duplicate; le correzioni manuali e le prenotazioni sono conservate.</p>`;
-  html += `<details><summary>Codice PATTY · 4 caratteri ${state.patty_pin_set ? '(attivo)' : '(da impostare)'}</summary><p class="notice">Salva il codice: al prossimo accesso sostituirà la password precedente.</p><form data-form="patty-pin">${codeField('Nuovo codice PATTY', 'pin')}${codeField('Ripeti il codice', 'confirm')}<button>Salva codice PATTY</button></form></details>`;
-  html += `<details ${pending.length ? 'open' : ''}><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><form data-form="pending" data-key="${esc(g.game_key)}"><div class="grid">${field('Data confermata', 'date', g.date || '', 'date', true)}${field('Ora confermata', 'time', g.time || '', 'time', true)}</div>${field('Motivo / riferimento', 'reason')}<button>Salva e inserisci nel calendario</button></form></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
-  html +=
+  const wasOpen = !!document.querySelector('#admin .patty-panel[open]');
+  const P = {};
+  P.sync = `<div class="actions"><button data-sync="calendar" class="primary">↻ Aggiorna tutti i calendari</button><button data-sync="results">↻ Aggiorna tutti i risultati</button></div><p class="notice">Aggiorna tutte le squadre attive. Le gare non vengono duplicate; le correzioni manuali e le prenotazioni sono conservate.</p>`;
+  P.pin = `<details><summary>Codice PATTY · 4 caratteri ${state.patty_pin_set ? '(attivo)' : '(da impostare)'}</summary><p class="notice">Salva il codice: al prossimo accesso sostituirà la password precedente.</p><form data-form="patty-pin">${codeField('Nuovo codice PATTY', 'pin')}${codeField('Ripeti il codice', 'confirm')}<button>Salva codice PATTY</button></form></details>`;
+  P.pending = `<details ${pending.length ? 'open' : ''}><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><form data-form="pending" data-key="${esc(g.game_key)}"><div class="grid">${field('Data confermata', 'date', g.date || '', 'date', true)}${field('Ora confermata', 'time', g.time || '', 'time', true)}</div>${field('Motivo / riferimento', 'reason')}<button>Salva e inserisci nel calendario</button></form></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
+  P.people =
     '<details><summary>Persone registrate (' + a.people.length + ')</summary>' +
     (a.people.map((p) => {
       const roles = [
@@ -414,7 +428,7 @@ function renderAdmin() {
       </div>`;
     }).join('') || '<p>Nessuna persona registrata.</p>') + '</details>';
   const roster=a.roster||[];
-  html += '<details><summary>Archivio 21 squadre · ' + roster.filter(x=>x.linked_team_id).length +
+  P.roster = '<details><summary>Archivio 21 squadre · ' + roster.filter(x=>x.linked_team_id).length +
     ' collegate</summary><p class="notice">Solo le squadre collegate a un identificativo ufficiale partecipano agli aggiornamenti. Le modifiche agli allenatori e dirigenti si propagano a tutte le partite della squadra.</p>' +
     '<p><button type="button" data-roster-pgs>Trova e collega le squadre PGS</button></p>' +
     roster.map(r=>`<details class="card"><summary>${r.id}. ${esc(r.category)} ${esc(r.source)} · ${esc(r.name)} · ${r.linked_team_id?'Collegata':'Da collegare'}</summary>
@@ -425,7 +439,7 @@ function renderAdmin() {
       </form>
       ${!r.linked_team_id&&r.source==='FIPAV'?`<form data-form="roster-fipav" data-id="${r.id}">${field('Codice girone FIPAV','group_id','','text',true)}<button>Verifica e collega il calendario</button></form>`:''}
     </details>`).join('')+'</details>';
-  html +=
+  P.teams =
     '<details><summary>Squadre · Staff · Nomi brevi · Incarichi FISSI</summary>' +
     a.teams
       .map(
@@ -443,13 +457,13 @@ function renderAdmin() {
     '<details><summary>Aggiungi squadra</summary>' +
     teamForm() +
     '</details></details>';
-  html += `<details><summary>Inserimento manuale di una gara</summary><form data-form="manual">${select(
+  P.manual = `<details><summary>Inserimento manuale di una gara</summary><form data-form="manual">${select(
     'Squadra',
     'team_id',
     a.teams.map((t) => [t.id, t.category + ' · ' + t.name]),
   )}${field('Avversaria', 'opponent', '', 'text', true)}${check('Gara in casa', 'is_home', true)}<div class="grid">${field('Data', 'date', '', 'date', true)}${field('Ora', 'time', '', 'time', true)}</div>${field('Palestra', 'venue')}${field('Indirizzo', 'address')}${field('Numero gara', 'game_number')}<button>Salva gara manuale</button></form></details>`;
   const removed = a.games.filter((g) => g.hidden || g.source_missing);
-  html +=
+  P.removed =
     '<details><summary>Gare nascoste / assenti dalla fonte (' +
     removed.length +
     ')</summary>' +
@@ -460,7 +474,7 @@ function renderAdmin() {
       )
       .join('') +
     '</details>';
-  html +=
+  P.system =
     '<details><summary>Stato aggiornamenti · Backup · Utilizzo</summary>' +
     a.sync
       .map(
@@ -468,7 +482,10 @@ function renderAdmin() {
       )
       .join('') +
     '<p class="notice">Il backup contiene dati personali e hash delle password: conservarlo in un archivio privato. La chiave segreta delle password deve essere custodita separatamente.</p><div class="actions"><button data-backup>Esporta backup riservato</button><button data-usage>Controlla utilizzo</button></div><div id="usage"></div></details>';
-  $('#admin').innerHTML = html;
+  const badge = pending.length
+    ? `<span class="badge warn">${pending.length} ${pending.length === 1 ? 'gara' : 'gare'} da completare</span>`
+    : '<span class="badge">Tutto in ordine</span>';
+  $('#admin').innerHTML = `<details class="patty-panel" ${wasOpen ? 'open' : ''}><summary><span>Strumenti PATTY</span>${badge}</summary><div class="patty-body"><h2>PATTY · Comandi riservati</h2><section class="pgroup"><h3>Aggiornare</h3>${P.sync}</section><section class="pgroup"><h3>Gare</h3>${P.pending}${P.manual}${P.removed}</section><section class="pgroup"><h3>Squadre e persone</h3>${P.roster}${P.teams}${P.people}</section><section class="pgroup"><h3>Sistema</h3>${P.pin}${P.system}</section></div></details>`;
 }
 async function syncAll(resultsOnly) {
   const scopes = [

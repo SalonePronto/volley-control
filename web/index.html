@@ -9,8 +9,7 @@
     <script type="module" src="/app.js"></script>
   </head>
   <body>
-    <main id="app">
-      <header class="hero">
+    <header class="hero"><div class="hero-in">
         <div class="brand">
           <span class="logo" aria-hidden="true">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">
@@ -26,21 +25,26 @@
           ><button id="access">Area personale</button
           ><button id="patty">🔒 PATTY <span id="pending-dot"></span></button>
         </nav>
-      </header>
+      </div></header>
+    <main id="app">
       <p class="staging">
         AMBIENTE DI PROVA · Solo calendari pubblici e account fittizi. Streamlit resta attivo.
       </p>
       <div id="message" role="status" aria-live="polite"></div>
       <section id="admin" hidden></section>
-      <nav id="weeks" aria-label="Settimane delle gare"></nav>
-      <h2 id="title">Caricamento…</h2>
-      <div id="metrics" class="metrics"></div>
-      <div id="summary"></div>
-      <div class="legend">
-        <span><i class="dot covered">✓</i> Coperto</span
-        ><span><i class="dot missing">!</i> Mancante</span><span>— Trasferta</span>
+      <div class="layout">
+        <aside class="side">
+          <nav id="weeks" aria-label="Settimane delle gare"></nav>
+          <h2 id="title">Caricamento…</h2>
+          <div id="metrics" class="metrics"></div>
+          <div id="summary"></div>
+          <div class="legend">
+            <span><i class="dot covered">✓</i> Coperto</span
+            ><span><i class="dot missing">!</i> Mancante</span><span>Trasferta: nessun posto da coprire</span>
+          </div>
+        </aside>
+        <section id="games" aria-label="Calendario partite"></section>
       </div>
-      <section id="games" aria-label="Calendario partite"></section>
       <footer>
         Fonti ufficiali FIPAV e PGS · Aggiornamenti manuali da PATTY · Archivio permanente D1
       </footer>
