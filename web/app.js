@@ -228,17 +228,12 @@ function render() {
   const baseWeek = state.week || weekOf(isoNow());
   const prevWeek = [...weeks].reverse().find((x) => x < baseWeek),
     nextWeek = weeks.find((x) => x > baseWeek),
-    range = (x) => weekLabel(x).replace('GARE ', ''),
-    weekGames = (x) => games.filter((g) => weekOf(g.date) === x),
-    weekLabelWithTotals = (x) => {
-      const list = weekGames(x);
-      return `${range(x)} · Casa ${list.filter((g) => g.is_home).length} · Trasferta ${list.filter((g) => !g.is_home).length}`;
-    };
+    range = (x) => weekLabel(x).replace('GARE ', '');
   $('#weeks').innerHTML =
     `<button class="step" ${prevWeek ? `data-week="${prevWeek}"` : 'disabled'} aria-label="Settimana precedente">‹</button>` +
     `<label class="week-pick"><span>${state.week ? 'Settimana' : 'Settimana corrente'}</span>` +
-    `<select id="week-select" aria-label="Scegli la settimana"><option value="">Home · ${weekLabelWithTotals(baseWeek)}</option>` +
-    weeks.map((x) => `<option value="${x}" ${state.week === x ? 'selected' : ''}>${weekLabelWithTotals(x)}</option>`).join('') +
+    `<select id="week-select" aria-label="Scegli la settimana"><option value="">Home · ${range(baseWeek)}</option>` +
+    weeks.map((x) => `<option value="${x}" ${state.week === x ? 'selected' : ''}>${range(x)}</option>`).join('') +
     `</select></label>` +
     `<button class="step" ${nextWeek ? `data-week="${nextWeek}"` : 'disabled'} aria-label="Settimana successiva">›</button>`;
   const w = state.week || weekOf(isoNow());
