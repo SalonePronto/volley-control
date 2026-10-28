@@ -21,7 +21,6 @@ Gli ID squadra sono esposti dagli attributi data-team-id delle righe visibili de
 Le grafie e gli spazi ufficiali sono conservati. Due squadre di categoria identica restano distinte tramite ID squadra.
 Tutte le categorie elencate sono femminili.
 
-Per PVI NOVAVISION non è inclusa una corrispondenza: non è stato possibile verificare gli identificativi ufficiali nel calendario regionale.
-La pagina pubblica Campionati del Comitato Regionale Lombardia è https://lombardia.federvolley.it/rest_api/article?category_id=42 .
+PVI NOVAVISION è gestita esclusivamente a mano da PATTY per decisione definitiva del 28/10/2026. Nessuna ricerca, associazione o integrazione automatica del calendario è prevista. Vedi [Gestione manuale NOVAVISION](NOVAVISION_GESTIONE_MANUALE.md).
 
 Questo file contiene esclusivamente riferimenti sportivi pubblici; non comprende credenziali, infrastruttura o dati dell'archivio applicativo.

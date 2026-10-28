@@ -16,6 +16,8 @@ let state = {
   },
   currentGame = null;
 const ROLES = { referee: 'Arbitro', scorer: 'Refertista' };
+// NOVAVISION: gestione manuale definitiva, esclusa dai collegamenti automatici.
+const manualCalendarOnly = (team) => /\bNOVAVISION\b/i.test(team.name || '');
 const FIELDS = {
   date: 'Data',
   time: 'Ora',
@@ -438,13 +440,13 @@ function renderAdmin() {
   P.roster = '<details><summary>Archivio 21 squadre · ' + roster.filter(x=>x.linked_team_id).length +
     ' collegate</summary><p class="notice">Solo le squadre collegate a un identificativo ufficiale partecipano agli aggiornamenti. Le modifiche agli allenatori e dirigenti si propagano a tutte le partite della squadra.</p>' +
     '<p><button type="button" data-roster-pgs>Trova e collega le squadre PGS</button></p>' +
-    roster.map(r=>`<details class="card"><summary>${r.id}. ${esc(r.category)} ${esc(r.source)} · ${esc(r.name)} · ${r.linked_team_id?'Collegata':'Da collegare'}</summary>
-      ${r.linked_team_id?`<p class="notice">Nome ufficiale: ${esc(r.official_name)} · ${esc(r.official_group||'')}</p>`:'<p class="notice">Identificativo ufficiale ancora da verificare.</p>'}
+    roster.map(r=>`<details class="card"><summary>${r.id}. ${esc(r.category)} ${esc(r.source)} · ${esc(r.name)} · ${manualCalendarOnly(r)?'Gestione manuale':r.linked_team_id?'Collegata':'Da collegare'}</summary>
+      ${manualCalendarOnly(r)?'<p class="notice">Calendario e risultati inseriti manualmente da PATTY.</p>':r.linked_team_id?`<p class="notice">Nome ufficiale: ${esc(r.official_name)} · ${esc(r.official_group||'')}</p>`:'<p class="notice">Identificativo ufficiale ancora da verificare.</p>'}
       <form data-form="roster-staff" data-id="${r.id}">
         <div class="grid">${field('Allenatore 1','coach1',r.coach1)}${field('Allenatore 2','coach2',r.coach2)}</div>
         <label class="field">Dirigenti<textarea name="managers">${esc(r.managers)}</textarea></label><button>Salva staff</button>
       </form>
-      ${!r.linked_team_id&&r.source==='FIPAV'?`<form data-form="roster-fipav" data-id="${r.id}">${field('Codice girone FIPAV','group_id','','text',true)}<button>Verifica e collega il calendario</button></form>`:''}
+      ${!manualCalendarOnly(r)&&!r.linked_team_id&&r.source==='FIPAV'?`<form data-form="roster-fipav" data-id="${r.id}">${field('Codice girone FIPAV','group_id','','text',true)}<button>Verifica e collega il calendario</button></form>`:''}
     </details>`).join('')+'</details>';
   P.teams =
     '<details><summary>Squadre · Staff · Nomi brevi · Incarichi FISSI</summary>' +
@@ -498,7 +500,7 @@ async function syncAll(resultsOnly) {
   const scopes = [
     ...new Set(
       state.teams
-        .filter((t) => t.active)
+        .filter((t) => t.active && !manualCalendarOnly(t))
         .map((t) =>
           [t.source, t.season, t.source === 'FIPAV' ? t.group_id : t.competition].join(':'),
         ),

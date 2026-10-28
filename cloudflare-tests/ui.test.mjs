@@ -333,3 +333,35 @@ test('PATTY vede archivio delle 21 squadre e salva staff collegato',async()=>{
   assert.equal((await statement(u.db,"SELECT coach1 FROM teams WHERE id='FIPAV:229693'").first()).coach1,'NUOVA');
  } finally {u.dom.window.close();u.db.close();}
 });
+
+test('NOVAVISION: nessun collegamento o aggiornamento automatico, inserimento manuale disponibile', async () => {
+  const u = await setup();
+  try {
+    await statement(u.db, 'UPDATE teams SET active=0').run();
+    await statement(u.db, "UPDATE teams SET name='PVI NOVAVISION',active=1 WHERE id='FIPAV:229693'").run();
+    let externalRequests = 0;
+    u.env.FETCH = async () => { externalRequests++; throw new Error('Nessuna fonte esterna prevista'); };
+    await u.start();
+    await u.click('#patty');
+    await u.submit('form[data-form="login"]', { password });
+    assert.equal(u.w.document.querySelector('form[data-form="roster-fipav"][data-id="1"]'), null);
+    const rosterCard = u.w.document.querySelector('form[data-form="roster-staff"][data-id="1"]').closest('details');
+    assert.match(rosterCard.textContent, /Gestione manuale/);
+    assert.doesNotMatch(rosterCard.textContent, /Verifica e collega|Da collegare|ancora da verificare/);
+    assert.ok(u.w.document.querySelector('form[data-form="roster-fipav"][data-id="2"]'));
+    await u.click('[data-sync="calendar"]');
+    await u.click('[data-sync="results"]');
+    assert.equal(externalRequests, 0);
+    await u.submit('form[data-form="manual"]', {
+      team_id: 'FIPAV:229693', opponent: 'TEST OSPITE MANUALE', is_home: true,
+      date: '2030-01-05', time: '18:30', venue: 'PALESTRA TEST',
+      address: 'INDIRIZZO TEST', game_number: 'TEST-NOVA-MANUALE'
+    });
+    const row = await statement(u.db, "SELECT effective_json FROM games WHERE json_extract(effective_json, '$.game_number')='TEST-NOVA-MANUALE'").first();
+    const g = row && JSON.parse(row.effective_json);
+    assert.ok(g);
+    assert.equal(g.home_team, 'PVI NOVAVISION');
+    assert.equal(g.date, '2030-01-05');
+    assert.match(u.w.document.querySelector('#games').textContent, /TEST OSPITE MANUALE/);
+  } finally { u.dom.window.close(); u.db.close(); }
+});
