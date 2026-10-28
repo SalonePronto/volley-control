@@ -1016,3 +1016,29 @@ test('PATTY rinnova in modo scorrevole la sessione, ma non una già scaduta', as
     assert.equal(expired.headers.get('set-cookie'), null);
   } finally { db.close(); }
 });
+
+test('API: prenotazioni consentite soltanto ai ruoli selezionati in registrazione', async () => {
+  const scenarios = [
+    { flags:[0,0,1,0], role:'referee', status:403 },
+    { flags:[0,0,0,1], role:'scorer', status:403 },
+    { flags:[0,1,1,0], role:'referee', status:403 },
+    { flags:[0,1,1,0], role:'scorer', status:201 },
+    { flags:[1,0,0,1], role:'referee', status:201 },
+    { flags:[1,0,0,1], role:'scorer', status:403 },
+  ];
+  for (const { flags, role, status } of scenarios) {
+    const db=new LocalD1(), env=envFor(db), id='TEST-person-'+role;
+    try {
+      await game(db);
+      await statement(db,
+        'INSERT INTO people(id,email,first_name,last_name,password_hash,wants_referee,wants_scorer,wants_manager,wants_coach,approved,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+        id,id+'@example.invalid','TEST','ROLE','hash',...flags,1,new Date().toISOString()).run();
+      const session=await userSession(db,id);
+      const actual=await call(env,'book',{game_key:GAME.game_key,role,slot:1},session);
+      assert.equal(actual.status,status,role+' '+JSON.stringify(flags));
+      if(status===403)assert.match(actual.body.error,/Non sei registrato per questo ruolo/);
+      const count=(await statement(db,'SELECT count(*) AS n FROM assignments').first()).n;
+      assert.equal(count,status===201?1:0);
+    } finally { db.close(); }
+  }
+});
