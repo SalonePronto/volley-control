@@ -299,19 +299,32 @@ test('Registrazione senza email e con codice 4 caratteri', async () => {
   } finally {u.dom.window.close();u.db.close();}
 });
 
-test('dirigente registrato automaticamente e prenotazione accessibile',async()=>{
+test('solo dirigente o allenatore: accesso alle gare ma nessuna prenotazione',async()=>{
+ for (const [role,first,last] of [
+  ['wants_manager','DIRIGENTE','TEST'],
+  ['wants_coach','ALLENATORE','TEST']
+ ]) {
+  const u=await setup();try{
+   await saveGame(u.db,GAME,GAME,{});await u.start();await u.click('#access');
+   await u.submit('form[data-form="register"]',{first_name:first,last_name:last,password:'D123',[role]:true});
+   assert.equal((await statement(u.db,'SELECT approved FROM people LIMIT 1').first()).approved,1);
+   await u.click('[data-week]');await u.click('[data-open]');
+   assert.equal(u.w.document.querySelector('[data-book]'),null);
+   assert.match(u.w.document.querySelector('#dialog-content').textContent,/Non abilitato a questo ruolo/);
+   assert.equal((await statement(u.db,'SELECT count(*) n FROM assignments').first()).n,0);
+  }finally{u.dom.window.close();u.db.close();}
+ }
+});
+test('dirigente e refertista: solo prenotazione come refertista',async()=>{
  const u=await setup();try{
- await saveGame(u.db,GAME,GAME,{});await u.start();await u.click('#access');
- await u.submit('form[data-form="register"]',{first_name:'TEST',last_name:'DIRIGENTE',password:'D123',wants_manager:true,});
- assert.equal((await statement(u.db,"SELECT approved FROM people WHERE last_name='DIRIGENTE'").first()).approved,1);
- assert.equal(u.w.document.querySelector('#identity').textContent,'TEST DIRIGENTE');
- // La gara fittizia è nel 2030: selezionare la sua settimana, non la Home corrente.
- await u.click('[data-week]');
- await u.click('[data-open]');assert.equal(u.w.document.querySelector('[data-book][data-role="referee"]').disabled,false);
- await u.click('[data-book][data-role="referee"]');
- await u.click('[data-confirm-action]');
- assert.equal((await statement(u.db,'SELECT count(*) n FROM assignments WHERE game_key=?',GAME.game_key).first()).n,1);
- assert.match(u.w.document.querySelector('#dialog-content').textContent,/TEST DIRIGENTE/);
+  await saveGame(u.db,GAME,GAME,{});await u.start();await u.click('#access');
+  await u.submit('form[data-form="register"]',{first_name:'DIRETTORE',last_name:'REFERTISTA',password:'D123',wants_manager:true,wants_scorer:true});
+  await u.click('[data-week]');await u.click('[data-open]');
+  assert.equal(u.w.document.querySelector('[data-book][data-role="referee"]'),null);
+  assert.equal(u.w.document.querySelector('[data-book][data-role="scorer"]').disabled,false);
+  await u.click('[data-book][data-role="scorer"]');await u.click('[data-confirm-action]');
+  const a=await statement(u.db,'SELECT role FROM assignments WHERE game_key=?',GAME.game_key).first();
+  assert.equal(a.role,'scorer');
  }finally{u.dom.window.close();u.db.close();}
 });
 
