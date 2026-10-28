@@ -465,3 +465,19 @@ body {
 .staff-inline-save { display: flex; gap: 8px; margin: 10px 0 4px; }
 .staff-inline-save button { flex: 1; min-width: 0; padding: 10px 4px; font-size: 13px; }
 .staff-reset { margin-top: 4px; background: transparent; color: #193b5c; border: 1px solid #cbd7e3; }
+
+/* Safari su iPhone: impedisce lo zoom automatico al focus dei campi. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+@media (max-width: 700px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  button, input, select, textarea {
+    touch-action: manipulation;
+  }
+}
