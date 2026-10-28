@@ -439,3 +439,22 @@ test('PATTY salva finale e sei parziali insieme, corregge e conserva Golden set'
   assert.equal(u.w.document.querySelector(f),null);assert.match(u.w.document.querySelector('#dialog-content').textContent,/3 – 0/);assert.match(u.w.document.querySelector('#dialog-content').textContent,/Golden set 15–13/);
  }finally{u.dom.window.close();u.db.close();}
 });
+
+test('PATTY modifica staff da scheda: questa gara e per sempre',async()=>{
+ const u=await setup();
+ try {
+  await saveGame(u.db,GAME,GAME,{});
+  await u.start(); await u.click('#patty');
+  await u.submit('form[data-form="login"]',{password});
+  await u.click('[data-week]'); await u.click('[data-open]');
+  const form='form[data-form="game-staff"]';
+  assert.ok(u.w.document.querySelector(form));
+  await u.submit(form,{coach1:'ALLENATORE OGGI',coach2:'',managers:'DIRIGENTE OGGI',scope:'match'});
+  assert.match(u.w.document.querySelector('#dialog-content').textContent,/ALLENATORE OGGI/);
+  assert.ok(u.w.document.querySelector('[data-staff-reset]'));
+  await u.submit(form,{coach1:'ALLENATORE SEMPRE',coach2:'VICE',managers:'DIRIGENTE SEMPRE',scope:'permanent'});
+  assert.equal((await statement(u.db,'SELECT coach1 FROM teams WHERE id=?',GAME.team_id).first()).coach1,'ALLENATORE SEMPRE');
+  assert.match(u.w.document.querySelector('#dialog-content').textContent,/DIRIGENTE SEMPRE/);
+  assert.equal(u.w.document.querySelector('[data-staff-reset]'),null);
+ }finally { u.dom.window.close(); u.db.close(); }
+});
