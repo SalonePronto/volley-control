@@ -1210,13 +1210,31 @@ async function route(req, env) {
         effective = { ...official, ...overrides };
       await saveGame(env.DB, effective, official, overrides, actor, 'PATTY · Staff solo questa partita', row.version);
     } else {
-      await env.DB.batch([
+      // "Per sempre" aggiorna la squadra e rimuove l'eccezione dalla gara aperta,
+      // in un'unica operazione: niente stato parzialmente aggiornato.
+      const overrides = JSON.parse(row.overrides_json);
+      const hasException = Object.prototype.hasOwnProperty.call(overrides,'staff_override');
+      const q = [];
+      if (hasException) {
+        delete overrides.staff_override;
+        const effective = { ...JSON.parse(row.official_json), ...overrides };
+        q.push(
+          statement(env.DB,'INSERT INTO write_guards(game_key,expected_version) VALUES(?,?)',
+            b.game_key,row.version),
+          statement(env.DB,'UPDATE games SET overrides_json=?,effective_json=?,updated_at=?,version=version+1 WHERE game_key=? AND version=?',
+            JSON.stringify(overrides),JSON.stringify(effective),at(),b.game_key,row.version),
+          statement(env.DB,'DELETE FROM write_guards WHERE game_key=?',b.game_key)
+        );
+      }
+      q.push(
         statement(env.DB, 'UPDATE teams SET coach1=?,coach2=?,managers=? WHERE id=?',
           staff.coach1,staff.coach2,staff.managers,row.team_id),
         statement(env.DB, 'UPDATE team_roster SET coach1=?,coach2=?,managers=? WHERE linked_team_id=?',
           staff.coach1,staff.coach2,staff.managers,row.team_id),
         audit(env.DB,actor,'team_staff_permanent',b.game_key,{team_id:row.team_id,staff})
-      ]);
+      );
+      try { await env.DB.batch(q); }
+      catch (e) { fail(dbMessage(e),409); }
     }
     return json({ ok: true, scope: b.scope });
   }
