@@ -4,8 +4,10 @@ for (const [url, file, type] of [
   ['/', 'web/index.html', 'text/html; charset=utf-8'],
   ['/app.js', 'web/app.js', 'text/javascript; charset=utf-8'],
   ['/style.css', 'web/style.css', 'text/css; charset=utf-8'],
+  ['/manifest.webmanifest', 'web/manifest.webmanifest', 'application/manifest+json'],
 ])
   assets[url] = { body: await readFile(file, 'utf8'), type };
+Object.assign(assets, JSON.parse(await readFile('web/icons.json', 'utf8')));
 await mkdir('dist', { recursive: true });
 let code = await readFile('worker/index.mjs', 'utf8');
 const domain = (await readFile('worker/domain.mjs', 'utf8')).replace(
