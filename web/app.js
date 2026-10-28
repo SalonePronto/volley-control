@@ -412,17 +412,23 @@ async function showGame(key) {
   const staffLine = (label, value) => `<div class="staff-line"><small>${esc(label)}</small><p>${esc(value || '—')}</p></div>`;
   const staff = g.staff_override || t;
   const managers = String(staff.managers || '').split(/\n+/).map((x) => x.trim()).filter(Boolean);
-  const staffBlock = `<div class="staff"><h3>Staff squadra${g.staff_override ? ' · Solo questa partita' : ''}</h3>${staffLine('Allenatore', staff.coach1 || 'Da inserire')}${staffLine('Secondo allenatore', staff.coach2)}${managers.length ? managers.map((m, i) => staffLine(i ? '' : managers.length > 1 ? 'Dirigenti' : 'Dirigente', m)).join('') : staffLine('Dirigenti', 'Da inserire')}</div>`;
+  // Per PATTY lo staff già presente è direttamente modificabile, senza pannelli extra.
+  const staffBlock = state.user?.admin
+    ? `<div class="staff"><h3>Staff squadra${g.staff_override ? ' · Solo questa partita' : ''}</h3>
+      <form class="staff-inline-form" data-form="game-staff" data-key="${esc(key)}">
+        <label class="staff-inline-row"><span>Allenatore</span><input type="text" name="coach1" value="${esc(staff.coach1 || '')}" placeholder="Da inserire" maxlength="1000"></label>
+        <label class="staff-inline-row"><span>Secondo allenatore</span><input type="text" name="coach2" value="${esc(staff.coach2 || '')}" placeholder="Da inserire" maxlength="1000"></label>
+        <label class="staff-inline-row"><span>Dirigenti</span><textarea name="managers" rows="2" maxlength="1000" placeholder="Da inserire · uno per riga">${esc(staff.managers || '')}</textarea></label>
+        <input type="hidden" name="scope" value="match">
+        <div class="staff-inline-save">
+          <button type="submit" class="primary" data-staff-scope="match">Solo questa volta</button>
+          <button type="submit" data-staff-scope="permanent">Per sempre</button>
+        </div>
+        ${g.staff_override ? `<button type="button" class="staff-reset" data-staff-reset data-game="${esc(key)}">Ripristina lo staff della squadra</button>` : ''}
+      </form></div>`
+    : `<div class="staff"><h3>Staff squadra</h3>${staffLine('Allenatore', staff.coach1 || 'Da inserire')}${staffLine('Secondo allenatore', staff.coach2)}${managers.length ? managers.map((m, i) => staffLine(i ? '' : managers.length > 1 ? 'Dirigenti' : 'Dirigente', m)).join('') : staffLine('Dirigenti', 'Da inserire')}</div>`;
   let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="strip"><span>Gara <b>${esc(g.game_number || 'n. non presente')}</b></span><span class="pill ${g.is_home ? 'home' : 'away'}">${g.is_home ? 'Casa' : 'Trasferta'}</span><span>${esc(g.source)}</span></div>${placeBlock}${staffBlock}${resultCard(g)}${g.notes ? card('Note', g.notes) : ''}`;
   if (state.user?.admin) {
-    html += `<details class="staff-edit"><summary>PATTY · Modifica allenatori e dirigenti</summary><form data-form="game-staff" data-key="${esc(key)}">
-      ${field('Allenatore', 'coach1', staff.coach1 || '')}
-      ${field('Secondo allenatore', 'coach2', staff.coach2 || '')}
-      <label class="field">Dirigenti (uno per riga)<textarea name="managers" rows="3">${esc(staff.managers || '')}</textarea></label>
-      ${select('Validità modifica', 'scope', [['match', 'Questa volta · Solo questa partita'], ['permanent', 'Per sempre · Tutte le partite della squadra']])}
-      <button type="submit" class="primary">Salva staff</button></form>
-      ${g.staff_override ? `<p class="notice">Questa gara ha un'eccezione rispetto allo staff della squadra.</p><button type="button" data-staff-reset data-game="${esc(key)}">Ripristina staff della squadra</button>` : ''}
-    </details>`;
     if (g.is_home) {
       html += `<section class="card"><h3>PATTY · Designazione federale</h3><form data-form="federal" data-key="${esc(key)}"><div class="actions">${check('Arbitro federale', 'federal_referee', federal(g, 'referee'))}${check('Refertista federale', 'federal_scorer', federal(g, 'scorer'))}</div><p class="notice">Federale: posto coperto e non prenotabile. Se già occupato, rimuovi prima l’incarico.</p><button class="primary">Salva scelta federali</button></form></section>`;
       const fixedPeople = (state.admin?.people || [])
@@ -738,8 +744,10 @@ async function submit(f) {
 document.addEventListener('submit', async (e) => {
   if (!e.target.matches('form[data-form]')) return;
   e.preventDefault();
-  const f = e.target,
-    button = f.querySelector('button');
+  const f = e.target;
+  if (f.dataset.form === 'game-staff' && e.submitter?.dataset.staffScope)
+    f.elements.namedItem('scope').value = e.submitter.dataset.staffScope;
+  const button = e.submitter || f.querySelector('button');
   if (button) button.disabled = true;
   try {
     await submit(f);
