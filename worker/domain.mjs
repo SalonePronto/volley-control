@@ -216,7 +216,7 @@ export function mergeGame(old, incoming, resultsOnly = false) {
     : incoming;
   const conflicts = [];
   for (const [field, value] of Object.entries(overrides))
-    if (JSON.stringify(official[field]) !== JSON.stringify(value))
+    if (field !== 'staff_override' && JSON.stringify(official[field]) !== JSON.stringify(value))
       conflicts.push({ field, incoming: JSON.stringify(official[field] ?? null) });
   const effective = { ...official, ...overrides };
   return { official, overrides, effective, conflicts };
