@@ -899,6 +899,9 @@ async function route(req, env) {
   if (path === '/api/book' && req.method === 'POST') {
     if (!s || s.admin || !s.person_id) fail('Accedi dall’area personale.', 403);
     const b = await body(req);
+    // L'accesso alla partita non concede i ruoli: controllarli sul server.
+    if (!((b.role === 'referee' && s.wants_referee) || (b.role === 'scorer' && s.wants_scorer)))
+      fail('Non sei registrato per questo ruolo.', 403);
     await assign(env.DB, b.game_key, b.role, b.slot, s.person_id);
     return json({ ok: true }, 201);
   }
