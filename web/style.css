@@ -437,3 +437,15 @@ body {
 #summary { font-weight: 600; }
 #admin { background: rgba(245,248,253,.96); border-radius: 16px; padding: 14px; }
 @media(max-width:700px) { body { background-attachment: scroll; } }
+
+/* Contrasto sullo sfondo fotografico e nella legenda desktop. */
+#title {
+  color: #fff;
+  text-shadow: 0 1px 3px #000;
+}
+@media (min-width: 1000px) {
+  .legend {
+    color: #14213d;
+    text-shadow: none;
+  }
+}
