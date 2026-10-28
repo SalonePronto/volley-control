@@ -237,7 +237,7 @@ function render() {
     `</select></label>` +
     `<button class="step" ${nextWeek ? `data-week="${nextWeek}"` : 'disabled'} aria-label="Settimana successiva">›</button>`;
   const w = state.week || weekOf(isoNow());
-  $('#title').textContent = state.week ? weekLabel(w) : 'HOME · Gare casalinghe da coprire';
+  $('#title').textContent = state.week ? weekLabel(w) : 'Gare casalinghe da coprire';
   $('#title').classList.toggle('sr-only', !!state.week);
   let rows = games.filter((g) => weekOf(g.date) === w);
   if (!state.week)
