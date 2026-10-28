@@ -449,3 +449,19 @@ body {
     text-shadow: none;
   }
 }
+
+
+/* PATTY: modifica immediata dello staff nella scheda partita originale. */
+.staff-inline-form { padding-top: 2px; }
+.staff-inline-row { display: block; padding: 6px 0; border-bottom: 1px solid #edf0f6; }
+.staff-inline-row > span { display: block; color: #6b778c; font-size: 11px; margin-bottom: 3px; }
+.staff-inline-row input, .staff-inline-row textarea {
+  box-sizing: border-box; display: block; width: 100%; padding: 7px 9px;
+  border: 1px solid #d9e1eb; border-radius: 7px; background: #f8fafd;
+  color: #193b5c; font-size: 16px; font-weight: 600; font-family: inherit;
+  text-transform: uppercase; resize: vertical;
+}
+.staff-inline-row input:focus, .staff-inline-row textarea:focus { outline: 2px solid #2764a2; background: white; }
+.staff-inline-save { display: flex; gap: 8px; margin: 10px 0 4px; }
+.staff-inline-save button { flex: 1; min-width: 0; padding: 10px 4px; font-size: 13px; }
+.staff-reset { margin-top: 4px; background: transparent; color: #193b5c; border: 1px solid #cbd7e3; }
