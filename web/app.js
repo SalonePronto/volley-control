@@ -511,18 +511,6 @@ function renderAdmin() {
     'team_id',
     a.teams.map((t) => [t.id, t.category + ' · ' + t.name]),
   )}${field('Avversaria', 'opponent', '', 'text', true)}${check('Gara in casa', 'is_home', true)}<div class="grid">${field('Data', 'date', '', 'date', true)}${field('Ora', 'time', '', 'time', true)}</div>${field('Palestra', 'venue')}${field('Indirizzo', 'address')}${field('Numero gara', 'game_number')}<button>Salva gara manuale</button></form></details>`;
-  const removed = a.games.filter((g) => g.hidden || g.source_missing);
-  P.removed =
-    '<details><summary>Gare nascoste / assenti dalla fonte (' +
-    removed.length +
-    ')</summary>' +
-    removed
-      .map(
-        (g) =>
-          `<p>${esc(g.game_number + ' · ' + g.home_team + ' – ' + g.away_team)} <button data-open="${esc(g.game_key)}">Vedi scheda</button></p>`,
-      )
-      .join('') +
-    '</details>';
   P.system =
     '<details><summary>Stato aggiornamenti · Backup · Utilizzo</summary>' +
     a.sync
@@ -534,7 +522,7 @@ function renderAdmin() {
   const badge = pending.length
     ? `<span class="badge warn">${pending.length} ${pending.length === 1 ? 'gara' : 'gare'} da completare</span>`
     : '<span class="badge">Tutto in ordine</span>';
-  $('#admin').innerHTML = `<details class="patty-panel" ${wasOpen ? 'open' : ''}><summary><span>Strumenti PATTY</span>${badge}</summary><div class="patty-body"><h2>PATTY · Comandi riservati</h2><section class="pgroup"><h3>Aggiornare</h3>${P.sync}</section><section class="pgroup"><h3>Gare</h3>${P.pending}${P.manual}${P.removed}</section><section class="pgroup"><h3>Squadre e persone</h3>${P.roster}${P.teams}${P.people}</section><section class="pgroup"><h3>Sistema</h3>${P.pin}${P.system}</section></div></details>`;
+  $('#admin').innerHTML = `<details class="patty-panel" ${wasOpen ? 'open' : ''}><summary><span>Strumenti PATTY</span>${badge}</summary><div class="patty-body"><h2>PATTY · Comandi riservati</h2><section class="pgroup"><h3>Aggiornare</h3>${P.sync}</section><section class="pgroup"><h3>Gare</h3>${P.pending}${P.manual}</section><section class="pgroup"><h3>Squadre e persone</h3>${P.roster}${P.teams}${P.people}</section><section class="pgroup"><h3>Sistema</h3>${P.pin}${P.system}</section></div></details>`;
 }
 async function syncAll(resultsOnly) {
   const scopes = [
