@@ -409,6 +409,10 @@ async function showGame(key) {
   if (state.user?.admin) {
     if (g.is_home) {
       html += `<section class="card"><h3>PATTY · Designazione federale</h3><form data-form="federal" data-key="${esc(key)}"><div class="actions">${check('Arbitro federale', 'federal_referee', federal(g, 'referee'))}${check('Refertista federale', 'federal_scorer', federal(g, 'scorer'))}</div><p class="notice">Federale: posto coperto e non prenotabile. Se già occupato, rimuovi prima l’incarico.</p><button class="primary">Salva scelta federali</button></form></section>`;
+      const fixedPeople = (state.admin?.people || [])
+        .filter((p) => p.approved && (p.wants_referee || p.wants_scorer))
+        .map((p) => [p.id, p.first_name + ' ' + p.last_name]);
+      html += `<details><summary>PATTY · Incarico fisso</summary><form data-form="fixed-sheet" data-key="${esc(key)}" data-team="${esc(g.team_id)}">${select('Ruolo', 'role', [['referee', 'Arbitro'], ['scorer', 'Refertista']])}${select('Persona', 'person_id', [['', 'Scegli una persona'], ...fixedPeople])}<p class="notice">Puoi applicare la scelta solo a questa partita oppure a tutte le prossime partite della squadra.</p>${select('Durata', 'scope', [['match', 'Solo questa partita'], ['future', 'Tutte le prossime partite della squadra']])}<button class="primary">Salva incarico</button></form></details>`;
     }
     html += `<details><summary>PATTY · Correggi dato</summary><form data-form="game-edit" data-key="${esc(key)}">${select(
       'Campo',
@@ -664,6 +668,25 @@ async function submit(f) {
         person_id: b.person_id,
       });
       break;
+    case 'fixed-sheet': {
+      if (!b.person_id) throw new Error('Seleziona una persona.');
+      if (b.scope === 'match') {
+        await api('admin/assign', {
+          game_key: f.dataset.key,
+          role: b.role,
+          slot: 1,
+          person_id: b.person_id,
+        });
+      } else {
+        const result = await api('admin/fixed', {
+          team_id: f.dataset.team,
+          role: b.role,
+          person_id: b.person_id,
+        });
+        for (const pending of result.pending || []) await api('admin/fixed/apply', { game_key: pending.game_key });
+      }
+      break;
+    }
     case 'manual':
       await api('admin/manual', {
         team_id: b.team_id,
