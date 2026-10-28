@@ -338,7 +338,21 @@ async function showGame(key) {
         const data = `data-game="${esc(key)}" data-role="${r}" data-slot="${slot}"`;
         const isFederal = federal(g, r);
         const allowed = state.user && !state.user.admin && !g.source_missing && !isFederal;
-        seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${isFederal ? (r === 'referee' ? 'Arbitro federale' : 'Refertista federale') : a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${isFederal ? '' : a ? (state.user?.admin || (state.user?.id === a.person_id && a.source === 'self') ? `<button data-cancel ${data}>${state.user?.admin ? 'Rimuovi incarico' : 'Annulla la mia prenotazione'}</button>` : '') : `<button data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi dall’area personale per prenotarti'}">${allowed ? (r === 'referee' ? 'Arbitro io' : 'Referto io') : 'Accedi per prenotarti'}</button>`}</div>`;
+        const patty = !!state.user?.admin;
+        const eligible = patty
+          ? (state.admin?.people || []).filter((p) => p.approved && p['wants_' + r])
+          : [];
+        const pattyBooking = `<div class="patty-seat-book">${select('Seleziona ' + (r === 'referee' ? 'arbitro' : 'refertista'), 'person_id', [['', 'Scegli una persona'], ...eligible.map((p) => [p.id, p.first_name + ' ' + p.last_name])])}<button type="button" data-admin-book ${data} ${eligible.length && !g.source_missing ? '' : 'disabled'}>${eligible.length ? 'Prenota' : 'Nessuna persona disponibile'}</button></div>`;
+        const currentAction = isFederal
+          ? (patty ? '<small class="notice">Modifica la designazione federale qui sotto.</small>' : '')
+          : a
+            ? (patty || (state.user?.id === a.person_id && a.source === 'self')
+                ? `<button type="button" data-cancel ${data}>${patty ? 'Togli prenotazione' : 'Annulla la mia prenotazione'}</button>`
+                : '')
+            : patty
+              ? pattyBooking
+              : `<button type="button" data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi dall’area personale per prenotarti'}">${allowed ? (r === 'referee' ? 'Arbitro io' : 'Referto io') : 'Accedi per prenotarti'}</button>`;
+        seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${isFederal ? (r === 'referee' ? 'Arbitro federale' : 'Refertista federale') : a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${currentAction}</div>`;
       }
   }
   const addrParts = [g.venue, ...String(g.address || '').split(/\s+-\s+/)].map((x) => (x || '').trim()).filter(Boolean).slice(0, 3);
@@ -359,14 +373,6 @@ async function showGame(key) {
       'field',
       Object.entries(FIELDS).map(([k, v]) => [k, v]),
     )}${field('Nuovo valore', 'value')}${field('Motivo / riferimento', 'reason')}<button>Salva modifica</button></form></details>`;
-    if (g.is_home) {
-      const people = state.admin.people.filter((p) => p.approved);
-      html += `<details><summary>PATTY · Assegna un posto libero</summary><form data-form="assign" data-key="${esc(key)}">${select('Ruolo', 'role', Object.entries(ROLES))}${field('Posto', 'slot', '1', 'number', true)}${select(
-        'Persona',
-        'person_id',
-        people.map((p) => [p.id, p.first_name + ' ' + p.last_name]),
-      )}<button>Assegna</button></form></details>`;
-    }
     const conflicts = state.admin.conflicts.filter((c) => c.game_key === key);
     html += conflicts.length
       ? '<details open><summary>Dati ufficiali diversi / conflitti da verificare</summary>' +
@@ -694,8 +700,13 @@ document.addEventListener('click', async (e) => {
         await load();
       } else access(true);
     } else if (b.dataset.open) await showGame(b.dataset.open);
-    else if (b.hasAttribute('data-book') || b.hasAttribute('data-cancel')) {
-      const booking = b.hasAttribute('data-book');
+    else if (b.hasAttribute('data-book') || b.hasAttribute('data-admin-book') || b.hasAttribute('data-cancel')) {
+      const pattyBooking = b.hasAttribute('data-admin-book');
+      const booking = b.hasAttribute('data-book') || pattyBooking;
+      const selectedPerson = pattyBooking ? b.closest('.patty-seat-book')?.querySelector('select')?.value : '';
+      if (pattyBooking && (!state.user?.admin || !state.admin?.people.some((p) => p.id === selectedPerson && p.approved && p['wants_' + b.dataset.role])))
+        throw new Error('Seleziona una persona abilitata per questo incarico.');
+      const personName = pattyBooking ? state.admin.people.find((p) => p.id === selectedPerson) : null;
       const g =
         state.games.find((g) => g.game_key === b.dataset.game) ||
         state.admin?.games.find((g) => g.game_key === b.dataset.game);
@@ -706,17 +717,19 @@ document.addEventListener('click', async (e) => {
       panel.className = 'action-confirmation';
       panel.setAttribute('role', 'alertdialog');
       panel.setAttribute('aria-labelledby', 'action-confirmation-title');
-      const message = booking
-        ? 'Ti stai prenotando per questa partita'
-        : state.user?.admin
-          ? 'Stai rimuovendo questo incarico da questa partita'
-          : 'Stai annullando la tua prenotazione per questa partita';
-      const attrs = `data-game="${esc(b.dataset.game)}" data-role="${esc(b.dataset.role)}" data-slot="${esc(b.dataset.slot)}"`;
-      panel.innerHTML = `<h3 id="action-confirmation-title">${message}</h3>
+      const message = pattyBooking
+        ? 'PATTY · Conferma prenotazione per ' + personName.first_name + ' ' + personName.last_name
+        : booking
+          ? 'Ti stai prenotando per questa partita'
+          : state.user?.admin
+            ? 'PATTY · Conferma rimozione della prenotazione'
+            : 'Stai annullando la tua prenotazione per questa partita';
+      const attrs = `data-game="${esc(b.dataset.game)}" data-role="${esc(b.dataset.role)}" data-slot="${esc(b.dataset.slot)}" ${pattyBooking ? 'data-person="' + esc(selectedPerson) + '"' : ''}`;
+      panel.innerHTML = `<h3 id="action-confirmation-title">${esc(message)}</h3>
         <p><strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></p>
         <p>${esc(g.date || 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(ROLES[b.dataset.role] || 'Incarico')}</p>
         <div class="actions">
-          <button type="button" class="primary" data-confirm-action data-action="${booking ? 'book' : 'cancel'}" ${attrs}>Conferma</button>
+          <button type="button" class="primary" data-confirm-action data-action="${pattyBooking ? 'admin/assign' : booking ? 'book' : 'cancel'}" ${attrs}>Conferma</button>
           <button type="button" data-abort-action>Indietro</button>
         </div>`;
       $('#dialog-content').prepend(panel);
@@ -725,14 +738,16 @@ document.addEventListener('click', async (e) => {
       $('#action-confirmation')?.remove();
     } else if (b.hasAttribute('data-confirm-action')) {
       b.disabled = true;
-      await api(b.dataset.action, {
+      const payload = {
         game_key: b.dataset.game,
         role: b.dataset.role,
         slot: Number(b.dataset.slot),
-      });
+      };
+      if (b.dataset.action === 'admin/assign') payload.person_id = b.dataset.person;
+      await api(b.dataset.action, payload);
       await load();
       await showGame(b.dataset.game);
-      notice(b.dataset.action === 'book' ? 'Prenotazione confermata.' : 'Prenotazione annullata.', true);
+      notice(b.dataset.action === 'cancel' ? 'Prenotazione rimossa.' : 'Prenotazione confermata.', true);
     } else if (b.hasAttribute('data-roster-pgs')) {
       b.disabled=true;
       const result=await api('admin/roster/pgs-search',{});
