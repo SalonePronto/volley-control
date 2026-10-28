@@ -411,6 +411,93 @@ function teamForm(t = {}) {
     t.source || 'FIPAV',
   )}${field('Stagione', 'season', t.season || '2026-2027', 'text', true)}${field('ID ufficiale squadra', 'official_team_id', t.official_team_id || '', 'text', true)}${field('Girone FIPAV / PGS', 'group_id', t.group_id || '')}${field('Codice campionato PGS', 'competition', t.competition || '')}${field('Nome ufficiale', 'name', t.name || '', 'text', true)}${field('Categoria', 'category', t.category || '', 'text', true)}${field('Nome breve smartphone', 'short_name', t.short_name || '', 'text', true)}${field('Primo allenatore', 'coach1', t.coach1 || '')}${field('Secondo allenatore', 'coach2', t.coach2 || '')}</div><label class="field">Dirigenti (uno per riga)<textarea name="managers">${esc(t.managers || '')}</textarea></label>${check('Squadra attiva per gli aggiornamenti', 'active', t.active !== 0)}<div class="actions"><button>Salva scheda squadra</button></div></form>`;
 }
+
+// PROVA NOVAVISION: sola lettura, nessuna scrittura dei calendari.
+// Accetta tabelle copiate con intestazioni e colonne separate da TAB, ; o |.
+function parseNovavisionPaste(raw) {
+  if (typeof raw !== 'string' || raw.length > 200000)
+    throw new Error('Incolla un calendario di dimensioni normali (massimo 200.000 caratteri).');
+  const lines = raw.trim().replace(/\r/g, '').split('\n').map((x) => x.trim()).filter(Boolean);
+  if (lines.length < 2) throw new Error('Incolla la tabella completa, compresa la riga delle intestazioni.');
+  const splitter = lines.some((x) => x.includes('\t')) ? '\t' : lines.some((x) => x.includes('|')) ? '|' : ';';
+  const split = (x) => x.split(splitter).map((v) => v.trim().replace(/^"|"$/g, ''));
+  const normalize = (v) => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
+  const matchesColumn = {
+    date: /^(data|datagara|giorno|dataincontro)$/,
+    time: /^(ora|orario|oragara|ore)$/,
+    home: /^(casa|squadracasa|squadra1|squadraospitante|ospitante|team1|locali)$/,
+    away: /^(ospite|squadraospite|squadra2|squadraospitata|team2|ospiti)$/,
+    number: /^(gara|ngara|numerogara|npartita|numeropartita|idgara|incontro)$/,
+    venue: /^(palestra|impianto|campo|luogo|sede)$/,
+    score: /^(risultato|punteggio|set|esito)$/,
+    round: /^(giornata|turno|giornatacampionato)$/
+  };
+  const cols = lines.map(split);
+  const headerIndex = cols.findIndex((row) => {
+    const x = row.map(normalize);
+    return ['date','time','home','away'].every((k) => x.some((v) => matchesColumn[k].test(v)));
+  });
+  if (headerIndex < 0) throw new Error('Non riconosco le colonne. Servono intestazioni: Data, Ora, Casa, Ospite (anche Squadra 1 e Squadra 2).');
+  const names = cols[headerIndex].map(normalize);
+  const at = (key) => names.findIndex((x) => matchesColumn[key].test(x));
+  const indices = Object.fromEntries(Object.keys(matchesColumn).map((k) => [k, at(k)]));
+  const games=[], ignored=[], errors=[], ids=new Set();
+  for (let i=headerIndex+1;i<cols.length;i++) {
+    const row=cols[i];
+    const cell=(key) => indices[key] < 0 ? '' : (row[indices[key]] || '').trim();
+    const home=cell('home'), away=cell('away');
+    if (!home && !away) continue;
+    if (!/novavision/i.test(home) && !/novavision/i.test(away)) { ignored.push(i+1); continue; }
+    if (!home || !away || (/novavision/i.test(home) && /novavision/i.test(away))) {
+      errors.push('Riga '+(i+1)+': squadre mancanti o non distinguibili.'); continue;
+    }
+    const rawDate=cell('date');
+    let date=rawDate.replace(/[.-]/g,'/');
+    if (/^\d{4}\/\d{2}\/\d{2}$/.test(date))
+      date=date.slice(8,10)+'/'+date.slice(5,7)+'/'+date.slice(0,4);
+    if (/^\d{2}\/\d{2}\/\d{2}$/.test(date)) date=date.slice(0,6)+'20'+date.slice(6);
+    const dd=date.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!dd) { errors.push('Riga '+(i+1)+': data non riconosciuta ('+rawDate+').'); continue; }
+    const iso=dd[3]+'-'+dd[2]+'-'+dd[1];
+    const day=new Date(iso+'T12:00:00Z');
+    if (Number.isNaN(day.valueOf()) || day.toISOString().slice(0,10)!==iso ||
+        iso<'2026-07-01' || iso>'2027-07-31') {
+      errors.push('Riga '+(i+1)+': data fuori stagione o non valida.'); continue;
+    }
+    const time=cell('time').replace('.',':').slice(0,5);
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      errors.push('Riga '+(i+1)+': ora non valida o mancante.'); continue;
+    }
+    const number=cell('number'), round=cell('round');
+    // Numero gara o giornata+avversarie: identità stabile anche se cambiano data e ora.
+    const key=number ? 'N'+normalize(number) : 'G'+normalize(round)+'_'+normalize(home)+'_'+normalize(away);
+    if (!number && !round) {
+      errors.push('Riga '+(i+1)+': manca sia Numero gara sia Giornata (necessario per evitare duplicati).'); continue;
+    }
+    if (ids.has(key)) { errors.push('Riga '+(i+1)+': partita duplicata nel testo.'); continue; }
+    ids.add(key);
+    games.push({key,number,round,date:iso,time,home,away,is_home:/novavision/i.test(home),
+      venue:cell('venue'),score:cell('score')});
+  }
+  return {games, ignored:ignored.length, errors, header:headerIndex+1};
+}
+function showNovavisionPreview(raw) {
+  const result=parseNovavisionPaste(raw);
+  if (!result.games.length) throw new Error(
+    result.errors.length ? result.errors.slice(0,3).join(' ') : 'Nessuna gara NOVAVISION trovata nella tabella.');
+  const items=result.games.map((g) =>
+    '<tr><td>'+esc(g.number || g.round || '—')+'</td><td>'+esc(g.date+' '+g.time)+'</td>'+
+    '<td>'+esc(g.home)+'</td><td>'+esc(g.away)+'</td><td>'+esc(g.score || '—')+'</td></tr>').join('');
+  const errors=result.errors.map((e)=>'<p class="notice">'+esc(e)+'</p>').join('');
+  return '<p><strong>'+result.games.length+' gare NOVAVISION riconosciute</strong> · '+result.ignored+
+    ' righe di altre squadre ignorate · '+result.errors.length+' anomalie.</p>'+
+    '<div style="overflow:auto"><table class="nova-preview"><thead><tr><th>Gara</th><th>Data e ora</th>'+
+    '<th>Casa</th><th>Ospite</th><th>Risultato</th></tr></thead><tbody>'+items+'</tbody></table></div>'+
+    (errors ? '<details open><summary>Righe da controllare</summary>'+errors+'</details>' : '')+
+    '<p class="notice">Solo anteprima: nessuna partita è stata modificata o importata.</p>';
+}
+
 function renderAdmin() {
   const a = state.admin;
   if (!a) return;
@@ -418,6 +505,11 @@ function renderAdmin() {
   const wasOpen = !!document.querySelector('#admin .patty-panel[open]');
   const P = {};
   P.sync = `<div class="actions"><button data-sync="calendar" class="primary">↻ Aggiorna tutti i calendari</button><button data-sync="results">↻ Aggiorna tutti i risultati</button></div><p class="notice">Aggiorna tutte le squadre attive. Le gare non vengono duplicate; le correzioni manuali e le prenotazioni sono conservate.</p>`;
+  P.novavision = '<details class="nova-test"><summary>Prova copia e incolla · NOVAVISION Serie D</summary>'+
+    '<p class="notice">Incolla una tabella del calendario con intestazioni (Data, Ora, Casa, Ospite e Numero gara o Giornata). Prima controlliamo che tutte le partite siano riconosciute.</p>'+
+    '<textarea id="nova-paste" rows="7" placeholder="Incolla qui il calendario copiato, con le intestazioni" style="width:100%;max-width:100%;min-height:130px"></textarea>'+
+    '<div class="actions"><button type="button" data-nova-preview class="primary">Controlla calendario NOVAVISION</button></div>'+
+    '<div id="nova-preview" aria-live="polite"></div></details>';
   P.pin = `<details><summary>Codice PATTY · 4 caratteri ${state.patty_pin_set ? '(attivo)' : '(da impostare)'}</summary><p class="notice">Salva il codice: al prossimo accesso sostituirà la password precedente.</p><form data-form="patty-pin">${codeField('Nuovo codice PATTY', 'pin')}${codeField('Ripeti il codice', 'confirm')}<button>Salva codice PATTY</button></form></details>`;
   P.pending = `<details ${pending.length ? 'open' : ''}><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><form data-form="pending" data-key="${esc(g.game_key)}"><div class="grid">${field('Data confermata', 'date', g.date || '', 'date', true)}${field('Ora confermata', 'time', g.time || '', 'time', true)}</div>${field('Motivo / riferimento', 'reason')}<button>Salva e inserisci nel calendario</button></form></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
   P.people =
@@ -491,7 +583,7 @@ function renderAdmin() {
   const badge = pending.length
     ? `<span class="badge warn">${pending.length} ${pending.length === 1 ? 'gara' : 'gare'} da completare</span>`
     : '<span class="badge">Tutto in ordine</span>';
-  $('#admin').innerHTML = `<details class="patty-panel" ${wasOpen ? 'open' : ''}><summary><span>Strumenti PATTY</span>${badge}</summary><div class="patty-body"><h2>PATTY · Comandi riservati</h2><section class="pgroup"><h3>Aggiornare</h3>${P.sync}</section><section class="pgroup"><h3>Gare</h3>${P.pending}${P.manual}${P.removed}</section><section class="pgroup"><h3>Squadre e persone</h3>${P.roster}${P.teams}${P.people}</section><section class="pgroup"><h3>Sistema</h3>${P.pin}${P.system}</section></div></details>`;
+  $('#admin').innerHTML = `<details class="patty-panel" ${wasOpen ? 'open' : ''}><summary><span>Strumenti PATTY</span>${badge}</summary><div class="patty-body"><h2>PATTY · Comandi riservati</h2><section class="pgroup"><h3>Aggiornare</h3>${P.sync}${P.novavision}</section><section class="pgroup"><h3>Gare</h3>${P.pending}${P.manual}${P.removed}</section><section class="pgroup"><h3>Squadre e persone</h3>${P.roster}${P.teams}${P.people}</section><section class="pgroup"><h3>Sistema</h3>${P.pin}${P.system}</section></div></details>`;
 }
 async function syncAll(resultsOnly) {
   const scopes = [
@@ -748,6 +840,10 @@ document.addEventListener('click', async (e) => {
       await load();
       await showGame(b.dataset.game);
       notice(b.dataset.action === 'cancel' ? 'Prenotazione rimossa.' : 'Prenotazione confermata.', true);
+    } else if (b.hasAttribute('data-nova-preview')) {
+      const output = $('#nova-preview');
+      try { output.innerHTML = showNovavisionPreview($('#nova-paste').value); }
+      catch (error) { output.textContent = error.message; }
     } else if (b.hasAttribute('data-roster-pgs')) {
       b.disabled=true;
       const result=await api('admin/roster/pgs-search',{});
