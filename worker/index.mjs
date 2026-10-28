@@ -1180,6 +1180,46 @@ async function route(req, env) {
     await assign(env.DB, b.game_key, b.role, b.slot, b.person_id, 'patty', actor);
     return json({ ok: true });
   }
+  if (path === '/api/admin/game/staff' && req.method === 'POST') {
+    const b = await body(req);
+    if (!b || !['match', 'permanent', 'reset'].includes(b.scope) ||
+        typeof b.game_key !== 'string' || !b.game_key)
+      fail('Scelta staff non valida.');
+    const row = await one(env.DB, 'SELECT * FROM games WHERE game_key=?', b.game_key);
+    if (!row) fail('Gara non trovata.', 404);
+    const team = await one(env.DB, 'SELECT id FROM teams WHERE id=?', row.team_id);
+    if (!team) fail('Squadra non trovata.', 404);
+    if (b.scope === 'reset') {
+      const overrides = JSON.parse(row.overrides_json);
+      if (!Object.prototype.hasOwnProperty.call(overrides, 'staff_override'))
+        return json({ ok: true, scope: b.scope });
+      delete overrides.staff_override;
+      const official = JSON.parse(row.official_json), effective = { ...official, ...overrides };
+      await saveGame(env.DB, effective, official, overrides, actor, 'PATTY · Ripristino staff della squadra', row.version);
+      return json({ ok: true, scope: b.scope });
+    }
+    const staff = {};
+    for (const field of ['coach1', 'coach2', 'managers']) {
+      if (typeof b[field] !== 'string' || b[field].length > 1000)
+        fail('Nome allenatore o dirigente non valido.');
+      staff[field] = clean(b[field]);
+    }
+    if (b.scope === 'match') {
+      const official = JSON.parse(row.official_json),
+        overrides = { ...JSON.parse(row.overrides_json), staff_override: staff },
+        effective = { ...official, ...overrides };
+      await saveGame(env.DB, effective, official, overrides, actor, 'PATTY · Staff solo questa partita', row.version);
+    } else {
+      await env.DB.batch([
+        statement(env.DB, 'UPDATE teams SET coach1=?,coach2=?,managers=? WHERE id=?',
+          staff.coach1,staff.coach2,staff.managers,row.team_id),
+        statement(env.DB, 'UPDATE team_roster SET coach1=?,coach2=?,managers=? WHERE linked_team_id=?',
+          staff.coach1,staff.coach2,staff.managers,row.team_id),
+        audit(env.DB,actor,'team_staff_permanent',b.game_key,{team_id:row.team_id,staff})
+      ]);
+    }
+    return json({ ok: true, scope: b.scope });
+  }
   if (path === '/api/admin/game' && req.method === 'POST') {
     const b = await body(req),
       patch = validatePatch(b.patch);
