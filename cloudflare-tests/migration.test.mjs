@@ -1042,3 +1042,42 @@ test('API: prenotazioni consentite soltanto ai ruoli selezionati in registrazion
     } finally { db.close(); }
   }
 });
+
+test('PATTY: staff solo gara, reset e per sempre senza cambiare prenotazioni o calendari', async () => {
+  const db = new LocalD1(), env = envFor(db);
+  try {
+    const adm=await loginAdmin(env);
+    await game(db);
+    const original=await statement(db,'SELECT coach1,managers FROM teams WHERE id=?',GAME.team_id).first();
+    let r=await call(env,'admin/game/staff',{
+      game_key:GAME.game_key,scope:'match',coach1:'ALLENATORE ECCEZIONE',coach2:'SECONDO',managers:'DIRIGENTE SOLO OGGI'
+    },adm);
+    assert.equal(r.status,200);
+    let row=await statement(db,'SELECT overrides_json,effective_json FROM games WHERE game_key=?',GAME.game_key).first();
+    assert.equal(JSON.parse(row.effective_json).staff_override.coach1,'ALLENATORE ECCEZIONE');
+    assert.equal((await statement(db,'SELECT coach1 FROM teams WHERE id=?',GAME.team_id).first()).coach1,original.coach1);
+    r=await call(env,'admin/game/staff',{game_key:GAME.game_key,scope:'reset'},adm);
+    assert.equal(r.status,200);
+    row=await statement(db,'SELECT overrides_json,effective_json FROM games WHERE game_key=?',GAME.game_key).first();
+    assert.equal(JSON.parse(row.effective_json).staff_override,undefined);
+    r=await call(env,'admin/game/staff',{
+      game_key:GAME.game_key,scope:'match',coach1:'VECCHIO',coach2:'',managers:''
+    },adm);
+    assert.equal(r.status,200);
+    r=await call(env,'admin/game/staff',{
+      game_key:GAME.game_key,scope:'permanent',coach1:'NUOVO PER TUTTE',coach2:'SOSTITUTO',managers:'DIRIGENTE DEFINITIVO'
+    },adm);
+    assert.equal(r.status,200);
+    const team=await statement(db,'SELECT coach1,coach2,managers FROM teams WHERE id=?',GAME.team_id).first();
+    assert.deepEqual(team,{coach1:'NUOVO PER TUTTE',coach2:'SOSTITUTO',managers:'DIRIGENTE DEFINITIVO'});
+    const roster=await statement(db,'SELECT coach1,coach2,managers FROM team_roster WHERE linked_team_id=?',GAME.team_id).first();
+    assert.equal(roster.coach1,team.coach1);
+    row=await statement(db,'SELECT effective_json FROM games WHERE game_key=?',GAME.game_key).first();
+    assert.equal(JSON.parse(row.effective_json).staff_override,undefined);
+    assert.equal((await statement(db,'SELECT COUNT(*) AS n FROM assignments').first()).n,0);
+    r=await call(env,'admin/game/staff',{
+      game_key:GAME.game_key,scope:'match',coach1:'ALTRO',coach2:'',managers:''
+    },{});
+    assert.equal(r.status,403);
+  }finally { db.close(); }
+});
