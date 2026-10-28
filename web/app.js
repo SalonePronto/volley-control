@@ -322,7 +322,7 @@ function access(admin = false) {
     : names + codeField('Codice personale (4 caratteri)', 'password');
   modal(
     admin ? 'PATTY · Accesso organizzatore' : 'Area personale · Accesso',
-    `<form data-form="login" data-admin="${admin}">${credentials}<button class="primary">Accedi</button></form>${!admin && state.registration_enabled ? `<details><summary>Prima registrazione · Solo collaudo</summary><p class="notice">Usa soltanto nome e cognome inventati. Nessuna email.</p><form data-form="register">${names}${codeField('Codice di 4 caratteri', 'password')}<div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}${check('Dirigente', 'wants_manager')}${check('Allenatore', 'wants_coach')}</div><label>${check('Confermo che sono dati fittizi', 'staging_consent')}</label><div class="actions"><button>Registrati ed entra</button></div></form></details>` : !admin ? '<p class="notice">Registrazioni non ancora aperte in questo ambiente.</p>' : ''}`,
+    `<form data-form="login" data-admin="${admin}">${credentials}<button class="primary">Accedi</button></form>${!admin && state.registration_enabled ? `<details><summary>Prima registrazione</summary><p class="notice">Inserisci nome, cognome e un codice personale di 4 caratteri, con lettere o numeri. Conserva il codice per i prossimi accessi.</p><form data-form="register">${names}${codeField('Codice di 4 caratteri', 'password')}<p class="notice">Seleziona almeno un ruolo. Puoi sceglierne più di uno: basta un solo account.</p><div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}${check('Dirigente', 'wants_manager')}${check('Allenatore', 'wants_coach')}</div><div class="actions"><button>Registrati ed entra</button></div></form></details>` : !admin ? '<p class="notice">Registrazioni non ancora aperte in questo ambiente.</p>' : ''}`,
   );
 }
 function resultCard(g) {
@@ -464,7 +464,7 @@ function renderAdmin() {
   P.pin = `<details><summary>Codice PATTY · 4 caratteri ${state.patty_pin_set ? '(attivo)' : '(da impostare)'}</summary><p class="notice">Salva il codice: al prossimo accesso sostituirà la password precedente.</p><form data-form="patty-pin">${codeField('Nuovo codice PATTY', 'pin')}${codeField('Ripeti il codice', 'confirm')}<button>Salva codice PATTY</button></form></details>`;
   P.pending = `<details ${pending.length ? 'open' : ''}><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><form data-form="pending" data-key="${esc(g.game_key)}"><div class="grid">${field('Data confermata', 'date', g.date || '', 'date', true)}${field('Ora confermata', 'time', g.time || '', 'time', true)}</div>${field('Motivo / riferimento', 'reason')}<button>Salva e inserisci nel calendario</button></form></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
   P.people =
-    '<details><summary>Persone registrate (' + a.people.length + ')</summary>' +
+    '<details><summary>Persone registrate (' + a.people.length + ')</summary><p class="notice">I nuovi iscritti accedono subito. Qui puoi vedere i ruoli scelti e disattivare o riattivare gli account.</p>' +
     (a.people.map((p) => {
       const roles = [
         ['wants_referee', 'Arbitro'], ['wants_scorer', 'Refertista'],
@@ -589,7 +589,6 @@ async function submit(f) {
         wants_scorer: !!b.wants_scorer,
         wants_manager: !!b.wants_manager,
         wants_coach: !!b.wants_coach,
-        staging_consent: !!b.staging_consent,
       });
       $('#dialog').close();
       await load();
