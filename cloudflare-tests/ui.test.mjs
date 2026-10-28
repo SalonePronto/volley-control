@@ -27,7 +27,11 @@ async function setup() {
   env.PATTY_HASH = await passwordHash(password, env.PASSWORD_PEPPER);
   const html = await readFile(new URL('../web/index.html', import.meta.url), 'utf8'),
     script = await readFile(new URL('../web/app.js', import.meta.url), 'utf8');
-  const dom = new JSDOM(html, { url: 'https://test.invalid/', runScripts: 'outside-only' }),
+  // Come una scheda visibile: JSDOM altrimenti la considera in prerender
+  // e l'app sospende correttamente la connessione live.
+  const dom = new JSDOM(html, {
+    url: 'https://test.invalid/', runScripts: 'outside-only', pretendToBeVisual: true,
+  }),
     w = dom.window;
   // Simula la connessione push in modo deterministico, senza rete nei test DOM.
   const sockets = [];
@@ -42,6 +46,7 @@ async function setup() {
     static OPEN = 1;
   };
   w.testSendLiveChange = () => {
+    assert.ok(sockets.some((socket) => socket.readyState === 1), 'connessione live aperta');
     for (const socket of sockets)
       if (socket.readyState === 1)
         socket.onmessage?.({ data: '{"type":"calendar-changed"}' });
@@ -114,10 +119,17 @@ test('notifica live aggiorna il posto su un secondo dispositivo, senza F5', asyn
     await statement(u.db,
       "INSERT INTO assignments(game_key,role,slot,person_id,source,created_at) VALUES(?,?,?,?,?,?)",
       GAME.game_key, 'referee', 1, 'LIVE-person', 'self', new Date().toISOString()).run();
+    assert.doesNotMatch(u.w.document.querySelector('#games').textContent, /TEST LIVE/);
     u.w.testSendLiveChange();
     await flush(u.w);
     assert.match(u.w.document.querySelector('#games').textContent, /TEST LIVE/);
     assert.equal(u.w.document.querySelectorAll('#games .mobile .dot.missing').length, 1);
+    assert.equal(u.w.document.querySelectorAll('#games .mobile .dot.covered').length, 1);
+    await statement(u.db, 'DELETE FROM assignments WHERE game_key=?', GAME.game_key).run();
+    u.w.testSendLiveChange();
+    await flush(u.w);
+    assert.doesNotMatch(u.w.document.querySelector('#games').textContent, /TEST LIVE/);
+    assert.equal(u.w.document.querySelectorAll('#games .mobile .dot.missing').length, 2);
   } finally { u.dom.window.close(); u.db.close(); }
 });
 const GAME = {
@@ -284,7 +296,13 @@ test('dirigente registrato automaticamente e prenotazione accessibile',async()=>
  await u.submit('form[data-form="register"]',{first_name:'TEST',last_name:'DIRIGENTE',password:'D123',wants_manager:true,staging_consent:true});
  assert.equal((await statement(u.db,"SELECT approved FROM people WHERE last_name='DIRIGENTE'").first()).approved,1);
  assert.equal(u.w.document.querySelector('#identity').textContent,'TEST DIRIGENTE');
+ // La gara fittizia è nel 2030: selezionare la sua settimana, non la Home corrente.
+ await u.click('[data-week]');
  await u.click('[data-open]');assert.equal(u.w.document.querySelector('[data-book][data-role="referee"]').disabled,false);
+ await u.click('[data-book][data-role="referee"]');
+ await u.click('[data-confirm-action]');
+ assert.equal((await statement(u.db,'SELECT count(*) n FROM assignments WHERE game_key=?',GAME.game_key).first()).n,1);
+ assert.match(u.w.document.querySelector('#dialog-content').textContent,/TEST DIRIGENTE/);
  }finally{u.dom.window.close();u.db.close();}
 });
 
@@ -306,8 +324,21 @@ test('PATTY attiva e disattiva le due spunte federali nella scheda partita',asyn
   assert.ok(u.w.document.querySelectorAll('#games .dot.covered').length>=2);
   assert.equal(u.w.document.querySelector('#dialog-content [data-book]'),null);
   await u.submit(form,{federal_referee:false,federal_scorer:false});
-  assert.ok(u.w.document.querySelector('#dialog-content [data-book][data-role="referee"]'));
-  assert.ok(u.w.document.querySelector('#games .dot.missing'));
+  // PATTY prenota per una persona: il pulsante personale data-book è riservato agli utenti.
+  assert.equal(u.w.document.querySelector('#dialog-content [data-book]'), null);
+  assert.ok(u.w.document.querySelector('#dialog-content [data-admin-book][data-role="referee"]'));
+  assert.ok(u.w.document.querySelector('#dialog-content [data-admin-book][data-role="scorer"]'));
+  assert.equal(u.w.document.querySelectorAll('#games .mobile .dot.missing').length,2);
+  const row=await statement(u.db,'SELECT effective_json FROM games WHERE game_key=?',GAME.game_key).first();
+  const g=JSON.parse(row.effective_json);
+  assert.equal(g.federal_referee,false);
+  assert.equal(g.federal_scorer,false);
+  // Lo stesso posto è di nuovo prenotabile dall'area personale dopo l'uscita da PATTY.
+  await u.click('#close-dialog');await u.click('#patty');await u.click('#access');
+  await u.submit('form[data-form="register"]',{first_name:'TEST',last_name:'FEDERALI',password:'F123',wants_referee:true,wants_scorer:true,staging_consent:true});
+  await u.click('[data-open]');
+  assert.equal(u.w.document.querySelector('#dialog-content [data-book][data-role="referee"]').disabled,false);
+  assert.equal(u.w.document.querySelector('#dialog-content [data-book][data-role="scorer"]').disabled,false);
  }finally{u.dom.window.close();u.db.close();}
 });
 
