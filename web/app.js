@@ -384,7 +384,7 @@ async function showGame(key) {
         const a = assigned(g).find((a) => a.role === r && a.slot === slot);
         const data = `data-game="${esc(key)}" data-role="${r}" data-slot="${slot}"`;
         const isFederal = federal(g, r);
-        const allowed = state.user && !state.user.admin && !g.source_missing && !isFederal;
+        const allowed = state.user && !state.user.admin && !!state.user['wants_' + r] && !g.source_missing && !isFederal;
         const patty = !!state.user?.admin;
         const eligible = patty
           ? (state.admin?.people || []).filter((p) => p.approved && p['wants_' + r])
@@ -398,7 +398,9 @@ async function showGame(key) {
                 : '')
             : patty
               ? pattyBooking
-              : `<button type="button" data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi dall’area personale per prenotarti'}">${allowed ? (r === 'referee' ? 'Arbitro io' : 'Referto io') : 'Accedi per prenotarti'}</button>`;
+              : state.user && !state.user.admin && !state.user['wants_' + r]
+                ? '<small class="notice">Non abilitato a questo ruolo</small>'
+                : `<button type="button" data-book ${data} ${allowed ? '' : 'disabled'} title="${allowed ? 'Prenota questo incarico' : 'Accedi dall’area personale per prenotarti'}">${allowed ? (r === 'referee' ? 'Arbitro io' : 'Referto io') : 'Accedi per prenotarti'}</button>`;
         seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${isFederal ? (r === 'referee' ? 'Arbitro federale' : 'Refertista federale') : a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${currentAction}</div>`;
       }
   }
