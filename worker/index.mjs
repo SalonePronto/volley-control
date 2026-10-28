@@ -850,8 +850,6 @@ async function route(req, env) {
     if (env.REGISTRATION_ENABLED !== 'true') fail('Registrazioni non ancora aperte.', 403);
     await throttle(env, req, 'register', 5);
     const b = await body(req);
-    if (!b.staging_consent && env.ENVIRONMENT !== 'production')
-      fail('Usare solo dati fittizi in questo ambiente di prova.');
     const first = clean(b.first_name), last = clean(b.last_name);
     if (!first || !last || first.length > 120 || last.length > 120 || (!b.wants_referee && !b.wants_scorer && !b.wants_manager && !b.wants_coach))
       fail('Inserisci nome, cognome e almeno una figura.');
