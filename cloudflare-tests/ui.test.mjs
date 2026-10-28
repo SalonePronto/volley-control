@@ -365,3 +365,24 @@ test('NOVAVISION: nessun collegamento o aggiornamento automatico, inserimento ma
     assert.match(u.w.document.querySelector('#games').textContent, /TEST OSPITE MANUALE/);
   } finally { u.dom.window.close(); u.db.close(); }
 });
+
+test('PATTY salva finale e sei parziali insieme, corregge e conserva Golden set', async () => {
+ const u=await setup(); try {
+  await saveGame(u.db,GAME,GAME,{}); await u.start(); await u.click('[data-week]'); await u.click('[data-open]');
+  const f='form[data-form="result"]'; assert.equal(u.w.document.querySelector(f),null);
+  await u.click('#close-dialog'); await u.click('#patty'); await u.submit('form[data-form="login"]',{password}); await u.click('[data-open]');
+  assert.equal(u.w.document.querySelectorAll(f+' input').length,14);
+  const values={home_sets:'3',away_sets:'2'};
+  for(let n=1;n<=6;n++){values['set_'+n+'_home']=n>=5?'15':'25';values['set_'+n+'_away']=n>=5?'12':'20';}
+  const read=async()=>JSON.parse((await statement(u.db,'SELECT effective_json FROM games WHERE game_key=?',GAME.game_key).first()).effective_json);
+  await u.submit(f,values);let g=await read();
+  assert.equal(g.played,true);assert.equal(g.home_sets,3);assert.equal(g.away_sets,2);assert.equal(g.sets.length,6);assert.equal(g.sets[5].number,6);
+  assert.equal(u.w.document.querySelector(f+' [name="set_6_home"]').value,'15');
+  await u.submit(f,{set_2_away:''});assert.match(u.w.document.querySelector('#dialog-message').textContent,/Completa entrambi/);assert.equal((await read()).sets.length,6);
+  await u.submit(f,{away_sets:'0',set_2_away:'20',set_4_home:'',set_4_away:'',set_5_home:'',set_5_away:'',set_6_away:'13'});
+  g=await read();assert.equal(g.away_sets,0);assert.equal(g.sets.length,4);assert.equal(g.sets[3].number,6);assert.equal(g.sets[3].away,13);
+  assert.equal(u.w.document.querySelector(f+' [name="set_4_home"]').value,'');assert.equal(u.w.document.querySelector(f+' [name="set_6_away"]').value,'13');
+  await u.click('#close-dialog');await u.click('#patty');await u.click('[data-open]');
+  assert.equal(u.w.document.querySelector(f),null);assert.match(u.w.document.querySelector('#dialog-content').textContent,/3 – 0/);assert.match(u.w.document.querySelector('#dialog-content').textContent,/Golden set 15–13/);
+ }finally{u.dom.window.close();u.db.close();}
+});
