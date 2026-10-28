@@ -279,21 +279,30 @@ test('Registrazione senza email e con codice 4 caratteri', async () => {
     const area=u.w.document.querySelector('#dialog-content');
     assert.equal(area.querySelector('[name="email"]'), null);
     const f=area.querySelector('form[data-form="register"]');
+    assert.doesNotMatch(area.textContent, /Solo collaudo|dati fittizi|nomi inventati/i);
+    assert.equal(f.elements.namedItem('staging_consent'),null);
+    assert.match(area.textContent,/Puoi sceglierne più di uno/);
     assert.equal(f.elements.namedItem('password').maxLength,4);
     assert.ok(f.elements.namedItem('wants_manager'));
     assert.ok(f.elements.namedItem('wants_coach'));
     await u.submit('form[data-form="register"]', {
       first_name:'MARIO',last_name:'COLLAUDO',password:'A123',
-      wants_referee:true,wants_scorer:true,staging_consent:true,
+      wants_referee:true,wants_scorer:true,wants_manager:true,wants_coach:true,
     });
     assert.equal((await statement(u.db,'SELECT count(*) n FROM people').first()).n,1);
+    const p=await statement(u.db,'SELECT * FROM people').first();
+    for(const key of ['wants_referee','wants_scorer','wants_manager','wants_coach']) assert.equal(p[key],1);
+    await u.click('#patty');await u.submit('form[data-form="login"]',{password});
+    const admin=u.w.document.querySelector('#admin');
+    assert.match(admin.textContent,/Arbitro, Refertista, Dirigente, Allenatore/);
+    assert.match(admin.textContent,/Disattiva account/);
   } finally {u.dom.window.close();u.db.close();}
 });
 
 test('dirigente registrato automaticamente e prenotazione accessibile',async()=>{
  const u=await setup();try{
  await saveGame(u.db,GAME,GAME,{});await u.start();await u.click('#access');
- await u.submit('form[data-form="register"]',{first_name:'TEST',last_name:'DIRIGENTE',password:'D123',wants_manager:true,staging_consent:true});
+ await u.submit('form[data-form="register"]',{first_name:'TEST',last_name:'DIRIGENTE',password:'D123',wants_manager:true,});
  assert.equal((await statement(u.db,"SELECT approved FROM people WHERE last_name='DIRIGENTE'").first()).approved,1);
  assert.equal(u.w.document.querySelector('#identity').textContent,'TEST DIRIGENTE');
  // La gara fittizia è nel 2030: selezionare la sua settimana, non la Home corrente.
@@ -335,7 +344,7 @@ test('PATTY attiva e disattiva le due spunte federali nella scheda partita',asyn
   assert.equal(g.federal_scorer,false);
   // Lo stesso posto è di nuovo prenotabile dall'area personale dopo l'uscita da PATTY.
   await u.click('#close-dialog');await u.click('#patty');await u.click('#access');
-  await u.submit('form[data-form="register"]',{first_name:'TEST',last_name:'FEDERALI',password:'F123',wants_referee:true,wants_scorer:true,staging_consent:true});
+  await u.submit('form[data-form="register"]',{first_name:'TEST',last_name:'FEDERALI',password:'F123',wants_referee:true,wants_scorer:true,});
   await u.click('[data-open]');
   assert.equal(u.w.document.querySelector('#dialog-content [data-book][data-role="referee"]').disabled,false);
   assert.equal(u.w.document.querySelector('#dialog-content [data-book][data-role="scorer"]').disabled,false);
