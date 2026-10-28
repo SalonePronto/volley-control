@@ -511,18 +511,10 @@ function renderAdmin() {
     'team_id',
     a.teams.map((t) => [t.id, t.category + ' · ' + t.name]),
   )}${field('Avversaria', 'opponent', '', 'text', true)}${check('Gara in casa', 'is_home', true)}<div class="grid">${field('Data', 'date', '', 'date', true)}${field('Ora', 'time', '', 'time', true)}</div>${field('Palestra', 'venue')}${field('Indirizzo', 'address')}${field('Numero gara', 'game_number')}<button>Salva gara manuale</button></form></details>`;
-  P.system =
-    '<details><summary>Stato aggiornamenti · Backup · Utilizzo</summary>' +
-    a.sync
-      .map(
-        (s) => `<p class="notice">${esc(s.scope)} · ${esc(s.at)} · ${esc(s.error || s.report)}</p>`,
-      )
-      .join('') +
-    '<p class="notice">Il backup contiene dati personali e hash delle password: conservarlo in un archivio privato. La chiave segreta delle password deve essere custodita separatamente.</p><div class="actions"><button data-backup>Esporta backup riservato</button><button data-usage>Controlla utilizzo</button></div><div id="usage"></div></details>';
   const badge = pending.length
     ? `<span class="badge warn">${pending.length} ${pending.length === 1 ? 'gara' : 'gare'} da completare</span>`
     : '<span class="badge">Tutto in ordine</span>';
-  $('#admin').innerHTML = `<details class="patty-panel" ${wasOpen ? 'open' : ''}><summary><span>Strumenti PATTY</span>${badge}</summary><div class="patty-body"><h2>PATTY · Comandi riservati</h2><section class="pgroup"><h3>Aggiornare</h3>${P.sync}</section><section class="pgroup"><h3>Gare</h3>${P.pending}${P.manual}</section><section class="pgroup"><h3>Squadre e persone</h3>${P.roster}${P.teams}${P.people}</section><section class="pgroup"><h3>Sistema</h3>${P.pin}${P.system}</section></div></details>`;
+  $('#admin').innerHTML = `<details class="patty-panel" ${wasOpen ? 'open' : ''}><summary><span>Strumenti PATTY</span>${badge}</summary><div class="patty-body"><h2>PATTY · Comandi riservati</h2><section class="pgroup"><h3>Aggiornare</h3>${P.sync}</section><section class="pgroup"><h3>Gare</h3>${P.pending}${P.manual}</section><section class="pgroup"><h3>Squadre e persone</h3>${P.roster}${P.teams}${P.people}</section><section class="pgroup"><h3>Sistema</h3>${P.pin}</section></div></details>`;
 }
 async function syncAll(resultsOnly) {
   const scopes = [
