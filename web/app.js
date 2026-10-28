@@ -325,6 +325,46 @@ function access(admin = false) {
     `<form data-form="login" data-admin="${admin}">${credentials}<button class="primary">Accedi</button></form>${!admin && state.registration_enabled ? `<details><summary>Prima registrazione · Solo collaudo</summary><p class="notice">Usa soltanto nome e cognome inventati. Nessuna email.</p><form data-form="register">${names}${codeField('Codice di 4 caratteri', 'password')}<div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}${check('Dirigente', 'wants_manager')}${check('Allenatore', 'wants_coach')}</div><label>${check('Confermo che sono dati fittizi', 'staging_consent')}</label><div class="actions"><button>Registrati ed entra</button></div></form></details>` : !admin ? '<p class="notice">Registrazioni non ancora aperte in questo ambiente.</p>' : ''}`,
   );
 }
+function resultCard(g) {
+  const partials = (g.sets || []).map((s, i) =>
+    ((s.number || i + 1) === 6 ? 'Golden set' : (s.number || i + 1) + '° set') +
+    ' ' + s.home + '–' + s.away).join(' · ');
+  if (!state.user?.admin)
+    return card('Risultato', g.played ? g.home_sets + ' – ' + g.away_sets : 'Non ancora disponibile', partials);
+  const scoreInput = (name, value, label, max, required = false) =>
+    `<input aria-label="${esc(label)}" name="${name}" type="number" min="0" max="${max}" step="1" inputmode="numeric" value="${esc(value ?? '')}" ${required ? 'required' : ''} style="width:100%;min-width:0;box-sizing:border-box">`;
+  return `<section class="card"><h3>Risultato</h3><form data-form="result" data-key="${esc(g.game_key)}">
+    <table style="width:100%;table-layout:fixed"><thead><tr><th style="width:28%"></th><th scope="col" style="overflow-wrap:anywhere">Casa<br>${esc(g.home_team)}</th><th scope="col" style="overflow-wrap:anywhere">Ospite<br>${esc(g.away_team)}</th></tr></thead><tbody>
+    <tr><th scope="row">Finale</th><td>${scoreInput('home_sets', g.home_sets, 'Set vinti casa', 6, true)}</td><td>${scoreInput('away_sets', g.away_sets, 'Set vinti ospite', 6, true)}</td></tr>
+    ${Array.from({ length: 6 }, (_, i) => {
+      const n = i + 1, s = (g.sets || []).find((s, j) => (s.number || j + 1) === n);
+      const label = n === 6 ? 'Golden set' : n + '° set';
+      return `<tr><th scope="row">${label}</th><td>${scoreInput('set_' + n + '_home', s?.home, label + ' casa', 100)}</td><td>${scoreInput('set_' + n + '_away', s?.away, label + ' ospite', 100)}</td></tr>`;
+    }).join('')}</tbody></table>
+    <p class="notice">Finale: set vinti da casa e ospite. Compila i parziali disponibili e lascia vuoti i set non giocati. Il Golden set resta separato dal finale.</p>
+    <button class="primary">Salva risultato</button>
+  </form></section>`;
+}
+function resultPatch(values) {
+  const integer = (value, max) => {
+    if (!/^\d+$/.test(String(value ?? '')) || Number(value) > max)
+      throw new Error('Inserisci numeri interi da 0 a ' + max + '.');
+    return Number(value);
+  };
+  const patch = { home_sets: integer(values.home_sets, 6), away_sets: integer(values.away_sets, 6), played: true, sets: [] };
+  let gap = false;
+  for (let n = 1; n <= 6; n++) {
+    const home = values['set_' + n + '_home'] ?? '', away = values['set_' + n + '_away'] ?? '';
+    if (home === '' && away === '') { if (n < 6) gap = true; continue; }
+    if (home === '' || away === '') throw new Error('Completa entrambi i punteggi del ' + (n === 6 ? 'Golden set' : n + '° set') + '.');
+    if (n < 6 && gap) throw new Error('Compila i parziali in ordine, senza saltare set.');
+    const s = { home: integer(home, 100), away: integer(away, 100) };
+    if (s.home === s.away) throw new Error('Un set concluso non può finire in parità.');
+    if (n === 6) s.number = 6;
+    patch.sets.push(s);
+  }
+  return patch;
+}
 async function showGame(key) {
   const g =
     state.games.find((x) => x.game_key === key) ||
@@ -365,7 +405,7 @@ async function showGame(key) {
   const staffLine = (label, value) => `<div class="staff-line"><small>${esc(label)}</small><p>${esc(value || '—')}</p></div>`;
   const managers = String(t.managers || '').split(/\n+/).map((x) => x.trim()).filter(Boolean);
   const staffBlock = `<div class="staff"><h3>Staff squadra</h3>${staffLine('Allenatore', t.coach1 || 'Da inserire')}${staffLine('Secondo allenatore', t.coach2)}${managers.length ? managers.map((m, i) => staffLine(i ? '' : managers.length > 1 ? 'Dirigenti' : 'Dirigente', m)).join('') : staffLine('Dirigenti', 'Da inserire')}</div>`;
-  let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="strip"><span>Gara <b>${esc(g.game_number || 'n. non presente')}</b></span><span class="pill ${g.is_home ? 'home' : 'away'}">${g.is_home ? 'Casa' : 'Trasferta'}</span><span>${esc(g.source)}</span></div>${placeBlock}${staffBlock}${card('Risultato', g.played ? g.home_sets + ' – ' + g.away_sets : 'Non ancora disponibile', (g.sets || []).map((s, i) => i + 1 + '° ' + s.home + '–' + s.away).join(' · '))}${g.notes ? card('Note', g.notes) : ''}`;
+  let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="strip"><span>Gara <b>${esc(g.game_number || 'n. non presente')}</b></span><span class="pill ${g.is_home ? 'home' : 'away'}">${g.is_home ? 'Casa' : 'Trasferta'}</span><span>${esc(g.source)}</span></div>${placeBlock}${staffBlock}${resultCard(g)}${g.notes ? card('Note', g.notes) : ''}`;
   if (state.user?.admin) {
     if (g.is_home) {
       html += `<section class="card"><h3>PATTY · Designazione federale</h3><form data-form="federal" data-key="${esc(key)}"><div class="actions">${check('Arbitro federale', 'federal_referee', federal(g, 'referee'))}${check('Refertista federale', 'federal_scorer', federal(g, 'scorer'))}</div><p class="notice">Federale: posto coperto e non prenotabile. Se già occupato, rimuovi prima l’incarico.</p><button class="primary">Salva scelta federali</button></form></section>`;
@@ -578,6 +618,14 @@ async function submit(f) {
           federal_scorer: !!b.federal_scorer,
         },
         reason: 'PATTY · Designazione federale',
+      });
+      break;
+    }
+    case 'result': {
+      await api('admin/game', {
+        game_key: f.dataset.key,
+        patch: resultPatch(b),
+        reason: 'PATTY · Risultato e parziali',
       });
       break;
     }
