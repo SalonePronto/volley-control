@@ -747,7 +747,7 @@ async function route(req, env) {
   if (!path.startsWith('/api/')) {
     const asset = ASSETS[path];
     if (!asset) return new Response('Pagina non trovata', { status: 404 });
-    return new Response(asset.body, {
+    return new Response(asset.base64 ? Uint8Array.from(atob(asset.body), (c) => c.charCodeAt(0)) : asset.body, {
       headers: {
         'Content-Type': asset.type,
         'Cache-Control': 'no-cache',
