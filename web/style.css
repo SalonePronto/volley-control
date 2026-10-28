@@ -354,9 +354,9 @@ button.primary:hover { background: var(--navy); }
 .layout { display: block; }
 @media (min-width: 1000px) {
   main { padding-left: 24px; padding-right: 24px; }
-  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 24px; align-items: start; }
-  .side { grid-column: 2; grid-row: 1; position: sticky; top: 16px; display: flex; flex-direction: column; gap: 10px; }
-  #games { grid-column: 1; grid-row: 1; }
+  .layout { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 24px; align-items: start; }
+  .side { grid-column: 1; grid-row: 1; position: sticky; top: 16px; display: flex; flex-direction: column; gap: 10px; }
+  #games { grid-column: 2; grid-row: 1; }
   #title { margin: 6px 0 0; font-size: 16px; }
   .metrics { display: flex; flex-direction: column; gap: 6px; margin: 0; }
   .metrics > div { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-radius: 12px; }
