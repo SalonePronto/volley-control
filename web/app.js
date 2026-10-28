@@ -410,10 +410,19 @@ async function showGame(key) {
     : '';
   const placeBlock = `<div class="place"><div class="place-text"><h3>Palestra e indirizzo</h3>${addrParts.map((x, i) => `<p class="${i ? 'addr' : 'venue'}">${esc(x)}</p>`).join('') || '<p class="venue">Da inserire</p>'}</div>${mapsLink}</div>`;
   const staffLine = (label, value) => `<div class="staff-line"><small>${esc(label)}</small><p>${esc(value || '—')}</p></div>`;
-  const managers = String(t.managers || '').split(/\n+/).map((x) => x.trim()).filter(Boolean);
-  const staffBlock = `<div class="staff"><h3>Staff squadra</h3>${staffLine('Allenatore', t.coach1 || 'Da inserire')}${staffLine('Secondo allenatore', t.coach2)}${managers.length ? managers.map((m, i) => staffLine(i ? '' : managers.length > 1 ? 'Dirigenti' : 'Dirigente', m)).join('') : staffLine('Dirigenti', 'Da inserire')}</div>`;
+  const staff = g.staff_override || t;
+  const managers = String(staff.managers || '').split(/\n+/).map((x) => x.trim()).filter(Boolean);
+  const staffBlock = `<div class="staff"><h3>Staff squadra${g.staff_override ? ' · Solo questa partita' : ''}</h3>${staffLine('Allenatore', staff.coach1 || 'Da inserire')}${staffLine('Secondo allenatore', staff.coach2)}${managers.length ? managers.map((m, i) => staffLine(i ? '' : managers.length > 1 ? 'Dirigenti' : 'Dirigente', m)).join('') : staffLine('Dirigenti', 'Da inserire')}</div>`;
   let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="strip"><span>Gara <b>${esc(g.game_number || 'n. non presente')}</b></span><span class="pill ${g.is_home ? 'home' : 'away'}">${g.is_home ? 'Casa' : 'Trasferta'}</span><span>${esc(g.source)}</span></div>${placeBlock}${staffBlock}${resultCard(g)}${g.notes ? card('Note', g.notes) : ''}`;
   if (state.user?.admin) {
+    html += `<details class="staff-edit"><summary>PATTY · Modifica allenatori e dirigenti</summary><form data-form="game-staff" data-key="${esc(key)}">
+      ${field('Allenatore', 'coach1', staff.coach1 || '')}
+      ${field('Secondo allenatore', 'coach2', staff.coach2 || '')}
+      <label class="field">Dirigenti (uno per riga)<textarea name="managers" rows="3">${esc(staff.managers || '')}</textarea></label>
+      ${select('Validità modifica', 'scope', [['match', 'Questa volta · Solo questa partita'], ['permanent', 'Per sempre · Tutte le partite della squadra']])}
+      <button type="submit" class="primary">Salva staff</button></form>
+      ${g.staff_override ? `<p class="notice">Questa gara ha un'eccezione rispetto allo staff della squadra.</p><button type="button" data-staff-reset data-game="${esc(key)}">Ripristina staff della squadra</button>` : ''}
+    </details>`;
     if (g.is_home) {
       html += `<section class="card"><h3>PATTY · Designazione federale</h3><form data-form="federal" data-key="${esc(key)}"><div class="actions">${check('Arbitro federale', 'federal_referee', federal(g, 'referee'))}${check('Refertista federale', 'federal_scorer', federal(g, 'scorer'))}</div><p class="notice">Federale: posto coperto e non prenotabile. Se già occupato, rimuovi prima l’incarico.</p><button class="primary">Salva scelta federali</button></form></section>`;
       const fixedPeople = (state.admin?.people || [])
@@ -644,6 +653,15 @@ async function submit(f) {
       if (r.game.date) state.week = weekOf(r.game.date);
       break;
     }
+    case 'game-staff':
+      await api('admin/game/staff', {
+        game_key: f.dataset.key,
+        scope: b.scope,
+        coach1: b.coach1 || '',
+        coach2: b.coach2 || '',
+        managers: b.managers || '',
+      });
+      break;
     case 'roster-staff':
       await api('admin/roster/staff',{id:Number(f.dataset.id),coach1:b.coach1,coach2:b.coach2,managers:b.managers});
       break;
@@ -808,6 +826,12 @@ document.addEventListener('click', async (e) => {
       await load();
       await showGame(b.dataset.game);
       notice(b.dataset.action === 'cancel' ? 'Prenotazione rimossa.' : 'Prenotazione confermata.', true);
+    } else if (b.hasAttribute('data-staff-reset')) {
+      if (!confirm('Ripristinare gli allenatori e i dirigenti della squadra per questa partita?')) return;
+      await api('admin/game/staff', { game_key: b.dataset.game, scope: 'reset' });
+      await load();
+      await showGame(b.dataset.game);
+      notice('Staff della squadra ripristinato.', true);
     } else if (b.hasAttribute('data-roster-pgs')) {
       b.disabled=true;
       const result=await api('admin/roster/pgs-search',{});
