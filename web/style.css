@@ -363,7 +363,7 @@ button.primary:hover { background: var(--navy); }
   .metrics span { display: inline; font-size: 13px; color: #3b475c; }
   .metrics strong { display: inline; font-size: 18px; margin: 0; }
   #summary { margin: 0; }
-  .legend { margin: 0; flex-direction: column; align-items: flex-start; gap: 6px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+  .legend { margin: 0; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px 10px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
   .mobile { grid-template-columns: 64px 118px minmax(0, 1fr) auto; }
 }
 
