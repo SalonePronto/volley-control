@@ -206,6 +206,7 @@ window.addEventListener('focus', () => {
 async function load() {
   const [me, c] = await Promise.all([api('me'), api('calendar')]);
   state = { ...state, ...me, ...c };
+  if (state.user && !state.user.admin) rememberRegisteredOnThisDevice();
   if (state.user?.admin) state.admin = await api('admin/state');
   else state.admin = null;
   render();
@@ -314,16 +315,48 @@ const check = (label, name, on = false) =>
   `<label><input type="checkbox" name="${name}" ${on ? 'checked' : ''}> ${esc(label)}</label>`;
 const codeField = (label, name) =>
   `<label class="field">${esc(label)}<input name="${esc(name)}" type="password" minlength="4" maxlength="4" pattern="[A-Za-z0-9]{4}" autocomplete="off" autocapitalize="off" required></label>`;
-function access(admin = false) {
+// Ricorda solo se questo dispositivo ha già completato un accesso personale.
+// Non vengono mai salvati nome, cognome o codice personale.
+const personalAccessMarker = 'volley-control-registrato-v1';
+let registeredOnThisDevice = false;
+function hasRegisteredOnThisDevice() {
+  if (registeredOnThisDevice) return true;
+  try { return localStorage.getItem(personalAccessMarker) === '1'; } catch { return false; }
+}
+function rememberRegisteredOnThisDevice() {
+  registeredOnThisDevice = true;
+  try { localStorage.setItem(personalAccessMarker, '1'); } catch { /* Memoria locale non disponibile. */ }
+}
+function access(admin = false, view = '') {
   const names = field('Nome', 'first_name', '', 'text', true) +
     field('Cognome', 'last_name', '', 'text', true);
-  const credentials = admin
-    ? (state.patty_pin_set ? codeField('Codice PATTY (4 caratteri)', 'password') : field('Password PATTY attuale', 'password', '', 'password', true))
-    : names + codeField('Codice personale (4 caratteri)', 'password');
-  modal(
-    admin ? 'PATTY · Accesso organizzatore' : 'Area personale · Accesso',
-    `<form data-form="login" data-admin="${admin}">${credentials}<button class="primary">Accedi</button></form>${!admin && state.registration_enabled ? `<details><summary>Prima registrazione</summary><p class="notice">Inserisci nome, cognome e un codice personale di 4 caratteri, con lettere o numeri. Conserva il codice per i prossimi accessi.</p><form data-form="register">${names}${codeField('Codice di 4 caratteri', 'password')}<p class="notice">Seleziona almeno un ruolo. Puoi sceglierne più di uno: basta un solo account.</p><div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}${check('Dirigente', 'wants_manager')}${check('Allenatore', 'wants_coach')}</div><div class="actions"><button>Registrati ed entra</button></div></form></details>` : !admin ? '<p class="notice">Registrazioni non ancora aperte in questo ambiente.</p>' : ''}`,
-  );
+  if (admin) {
+    const credentials = state.patty_pin_set
+      ? codeField('Codice PATTY (4 caratteri)', 'password')
+      : field('Password PATTY attuale', 'password', '', 'password', true);
+    modal('PATTY · Accesso organizzatore',
+      `<form data-form="login" data-admin="true">${credentials}<button class="primary">Accedi</button></form>`);
+    return;
+  }
+  const showRegister = state.registration_enabled &&
+    (view === 'register' || (view !== 'login' && !hasRegisteredOnThisDevice()));
+  if (showRegister) {
+    modal('Prima registrazione',
+      `<p class="notice">Inserisci nome, cognome e un codice personale di 4 caratteri, con lettere o numeri. Conserva il codice per i prossimi accessi.</p>
+      <form data-form="register">${names}${codeField('Codice di 4 caratteri', 'password')}
+      <p class="notice">Seleziona almeno un ruolo. Puoi sceglierne più di uno: basta un solo account.</p>
+      <div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}${check('Dirigente', 'wants_manager')}${check('Allenatore', 'wants_coach')}</div>
+      <div class="actions"><button class="primary">Registrati ed entra</button></div></form>
+      <p class="access-switch">Sei già registrato? <button type="button" data-access-view="login">Accedi</button></p>`);
+    return;
+  }
+  modal('Area personale · Accesso',
+    `<form data-form="login" data-admin="false">${names}${codeField('Codice personale (4 caratteri)', 'password')}
+    <button class="primary">Accedi</button></form>${!state.registration_enabled
+      ? '<p class="notice">Registrazioni non ancora aperte in questo ambiente.</p>'
+      : !hasRegisteredOnThisDevice()
+        ? '<p class="access-switch">È la prima volta? <button type="button" data-access-view="register">Registrati</button></p>'
+        : ''}`);
 }
 function resultCard(g) {
   const partials = (g.sets || []).map((s, i) =>
@@ -580,6 +613,7 @@ async function submit(f) {
   switch (kind) {
     case 'login':
       await api('auth/login', { ...b, admin: f.dataset.admin === 'true' });
+      if (f.dataset.admin !== 'true') rememberRegisteredOnThisDevice();
       $('#dialog').close();
       await load();
       return;
@@ -591,6 +625,7 @@ async function submit(f) {
         wants_manager: !!b.wants_manager,
         wants_coach: !!b.wants_coach,
       });
+      rememberRegisteredOnThisDevice();
       $('#dialog').close();
       await load();
       notice('Registrazione completata. Sei già connesso.');
@@ -761,7 +796,9 @@ document.addEventListener('click', async (e) => {
   const b = e.target.closest('button');
   if (!b) return;
   try {
-    if (b.id === 'close-dialog') {
+    if (b.dataset.accessView) {
+      access(false, b.dataset.accessView);
+    } else if (b.id === 'close-dialog') {
       $('#dialog').close();
       currentGame = null;
     } else if (b.id === 'home') {
