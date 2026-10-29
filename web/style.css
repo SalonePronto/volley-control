@@ -503,3 +503,21 @@ html, body {
     flex: 0 0 44px;
   }
 }
+
+/* Accesso personale: un solo modulo alla volta, con alternativa discreta. */
+.access-switch {
+  margin: 14px 0 0;
+  color: #5b6577;
+  font-size: 14px;
+}
+.access-switch button {
+  display: inline;
+  padding: 4px 6px;
+  min-height: 0;
+  background: transparent;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #1c548f;
+  text-decoration: underline;
+  font-size: 16px;
+}
