@@ -1141,18 +1141,20 @@ async function route(req, env) {
   }
   if (path === '/api/admin/person' && req.method === 'POST') {
     const b = await body(req);
-    if (!b || Object.keys(b).sort().join(',') !== 'approved,id' ||
-        typeof b.approved !== 'boolean' || typeof b.id !== 'string' || !b.id)
-      fail('PATTY può soltanto attivare o disattivare un account.', 400);
-    const person = await one(env.DB, 'SELECT id,approved FROM people WHERE id=?', b.id);
+    if (!b || Object.keys(b).sort().join(',') !== 'action,id' ||
+        b.action !== 'delete' || typeof b.id !== 'string' || !b.id)
+      fail('PATTY può soltanto eliminare un account.', 400);
+    const person = await one(env.DB, 'SELECT id,first_name,last_name FROM people WHERE id=?', b.id);
     if (!person) fail('Utente non trovato.', 404);
-    if (!!person.approved === b.approved) return json({ ok: true, approved: b.approved });
     await env.DB.batch([
-      statement(env.DB, 'UPDATE people SET approved=?,can_access_patty=CASE WHEN ?=0 THEN 0 ELSE can_access_patty END WHERE id=?', +b.approved,+b.approved, b.id),
-      ...(b.approved ? [] : [statement(env.DB, 'DELETE FROM sessions WHERE person_id=?', b.id)]),
-      audit(env.DB, actor, 'person_access_changed', null, { id: b.id, approved: b.approved }),
+      statement(env.DB, 'DELETE FROM sessions WHERE person_id=?', b.id),
+      statement(env.DB, 'DELETE FROM assignments WHERE person_id=?', b.id),
+      statement(env.DB, 'DELETE FROM team_fixed WHERE person_id=?', b.id),
+      statement(env.DB, 'DELETE FROM cancellation_guards WHERE person_id=?', b.id),
+      statement(env.DB, 'DELETE FROM people WHERE id=?', b.id),
+      audit(env.DB, actor, 'person_deleted', null, { id: b.id, name: person.first_name + ' ' + person.last_name }),
     ]);
-    return json({ ok: true, approved: b.approved });
+    return json({ ok: true });
   }
   if (path === '/api/admin/team' && req.method === 'POST') {
     const b = await body(req),

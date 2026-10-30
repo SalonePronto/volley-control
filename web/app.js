@@ -539,23 +539,23 @@ function renderAdmin() {
   P.pending = `<details><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><button type="button" data-open="${esc(g.game_key)}">Apri scheda partita</button></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
   const delegateCount = a.people.filter((p) => p.can_access_patty).length;
   P.people =
-    '<details><summary>Persone registrate (' + a.people.length + ')</summary><p class="notice">I nuovi iscritti accedono subito. Qui puoi vedere i ruoli scelti e disattivare o riattivare gli account.</p>' +
-    (!state.user?.id ? '<p class="notice">Accessi PATTY aggiuntivi: ' + delegateCount + '/2. Autorizza fino a due persone già registrate, senza comunicare il codice PATTY.</p>' : '') +
-    (a.people.map((p) => {
+    '<details><summary>Persone registrate (' + a.people.length + ')</summary><p class="notice">Qui puoi vedere i ruoli scelti e, quando necessario, eliminare definitivamente un account.</p>' +
+    (!state.user?.id ? '<p class="notice">Accessi PATTY aggiuntivi: ' + delegateCount + '/2. Solo PATTY può autorizzare o revocare gli accessi, senza comunicare il proprio codice.</p>' : '') +
+    ((a.people.map((p) => {
       const roles = [
         ['wants_referee', 'Arbitro'], ['wants_scorer', 'Refertista'],
         ['wants_manager', 'Dirigente'], ['wants_coach', 'Allenatore']
       ].filter(([key]) => p[key]).map(([, label]) => label).join(', ') || 'Nessun ruolo';
-      return `<div class="person"><b>${esc(p.first_name + ' ' + p.last_name)}</b>
-        <p class="notice">${esc(roles)} · ${p.approved ? 'Attivo' : 'Disattivato'}${p.can_access_patty ? ' · Accesso PATTY autorizzato' : ''}</p>
-        <button type="button" data-person-access="${esc(p.id)}"
-          data-approved="${p.approved ? 'false' : 'true'}">${p.approved ? 'Disattiva account' : 'Riattiva account'}</button>
-        ${!state.user?.id ? `<button type="button" data-patty-delegate="${esc(p.id)}"
-          data-allowed="${p.can_access_patty ? 'false' : 'true'}"
-          ${!p.can_access_patty && (!p.approved || delegateCount >= 2) ? 'disabled' : ''}>
-          ${p.can_access_patty ? 'Revoca accesso PATTY' : 'Autorizza accesso PATTY'}</button>` : ''}
-      </div>`;
-    }).join('') || '<p>Nessuna persona registrata.</p>') + '</details>';
+      const action = !state.user?.id ?
+        '<button type="button" data-patty-delegate="' + esc(p.id) + '" data-allowed="' +
+        (p.can_access_patty ? 'false' : 'true') + '"' +
+        (!p.can_access_patty && (!p.approved || delegateCount >= 2) ? ' disabled' : '') +
+        '>' + (p.can_access_patty ? 'Revoca accesso PATTY' : 'Autorizza accesso PATTY') + '</button>' : '';
+      return '<div class="person"><b>' + esc(p.first_name + ' ' + p.last_name) + '</b>' +
+        '<p class="notice">' + esc(roles) + (p.can_access_patty ? ' · Accesso PATTY autorizzato' : '') + '</p>' +
+        '<button type="button" data-person-delete="' + esc(p.id) + '">Elimina account</button>' +
+        action + '</div>';
+    }).join('')) || '<p>Nessuna persona registrata.</p>') + '</details>';
   const roster=a.roster||[];
   P.roster = '<details><summary>Archivio 21 squadre · ' + roster.filter(x=>x.linked_team_id).length +
     ' collegate</summary><p class="notice">Solo le squadre collegate a un identificativo ufficiale partecipano agli aggiornamenti. Le modifiche agli allenatori e dirigenti si propagano a tutte le partite della squadra.</p>' +
@@ -930,13 +930,12 @@ document.addEventListener('click', async (e) => {
       await api('admin/delegate', { id: b.dataset.pattyDelegate, allowed });
       await load();
       notice(allowed ? 'Accesso PATTY autorizzato.' : 'Accesso PATTY revocato.');
-    } else if (b.hasAttribute('data-person-access')) {
-      const approved = b.dataset.approved === 'true';
-      if (!confirm('Vuoi ' + (approved ? 'riattivare' : 'disattivare') + ' questo account?')) return;
+    } else if (b.hasAttribute('data-person-delete')) {
+      if (!confirm('Vuoi eliminare definitivamente questo account? Questa operazione non si può annullare.')) return;
       b.disabled = true;
-      await api('admin/person', { id: b.dataset.personAccess, approved });
+      await api('admin/person', { id: b.dataset.personDelete, action: 'delete' });
       await load();
-      notice(approved ? 'Account riattivato.' : 'Account disattivato.');
+      notice('Account eliminato.');
     } else if (b.dataset.sync) await syncAll(b.dataset.sync === 'results');
     else if (b.dataset.reset) {
       await api('admin/override/reset', { game_key: b.dataset.game, field: b.dataset.reset });
