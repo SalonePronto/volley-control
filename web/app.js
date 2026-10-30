@@ -552,6 +552,7 @@ function auditDescription(record) {
     patty_delegate_granted: 'Accesso PATTY autorizzato',
     patty_delegate_revoked: 'Accesso PATTY revocato',
     person_deleted: 'Account eliminato',
+    person_roles_updated: 'Ruoli persona modificati',
     patty_pin_changed: 'Codice PATTY modificato',
     calendar_sync_started: 'Aggiornamento calendari avviato',
     source_updated: 'Dati ufficiali aggiornati',
@@ -561,7 +562,7 @@ function auditDescription(record) {
   const base = labels[record.action] || record.action;
   let suffix = '';
   if (record.action === 'game_modified' && details.reason) suffix = ' · ' + String(details.reason);
-  if (record.action === 'person_deleted' && details.name) suffix = ' · ' + details.name;
+  if ((record.action === 'person_deleted' || record.action === 'person_roles_updated') && details.name) suffix = ' · ' + details.name;
   if (record.action === 'calendar_sync_started' && details.scope)
     suffix = ' · ' + details.scope + (details.results_only ? ' (risultati)' : '');
   if (record.action === 'booking_request' && details.role)
@@ -601,7 +602,7 @@ function renderAdmin() {
   P.pending = `<details><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><button type="button" data-open="${esc(g.game_key)}">Apri scheda partita</button></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
   const delegateCount = a.people.filter((p) => p.can_access_patty).length;
   P.people =
-    '<details><summary>Persone registrate (' + a.people.length + ')</summary><p class="notice">Qui puoi vedere i ruoli scelti e, quando necessario, eliminare definitivamente un account.</p>' +
+    '<details><summary>Persone registrate (' + a.people.length + ')</summary><p class="notice">Qui puoi aggiornare i ruoli di ogni persona senza cambiare il suo account o le prenotazioni.</p>' +
     (!state.user?.id ? '<p class="notice">Accessi PATTY aggiuntivi: ' + delegateCount + '/2. Solo PATTY può autorizzare o revocare gli accessi, senza comunicare il proprio codice.</p>' : '') +
     ((a.people.map((p) => {
       const roles = [
@@ -615,6 +616,7 @@ function renderAdmin() {
         '>' + (p.can_access_patty ? 'Revoca accesso PATTY' : 'Autorizza accesso PATTY') + '</button>' : '';
       return '<div class="person"><b>' + esc(p.first_name + ' ' + p.last_name) + '</b>' +
         '<p class="notice">' + esc(roles) + (p.can_access_patty ? ' · Accesso PATTY autorizzato' : '') + '</p>' +
+        '<button type="button" data-person-roles="' + esc(p.id) + '">Modifica ruoli</button> ' +
         '<button type="button" data-person-delete="' + esc(p.id) + '">Elimina account</button>' +
         action + '</div>';
     }).join('')) || '<p>Nessuna persona registrata.</p>') + '</details>';
@@ -722,6 +724,22 @@ async function submit(f) {
       await load();
       notice('Registrazione completata. Sei già connesso.');
       return;
+    case 'person-roles': {
+      const payload = {
+        id: f.dataset.personId,
+        wants_referee: !!b.wants_referee,
+        wants_scorer: !!b.wants_scorer,
+        wants_manager: !!b.wants_manager,
+        wants_coach: !!b.wants_coach,
+      };
+      if (!Object.entries(payload).some(([key, value]) => key !== 'id' && value))
+        throw new Error('Seleziona almeno un ruolo.');
+      await api('admin/person/roles', payload);
+      $('#dialog').close();
+      await load();
+      notice('Ruoli aggiornati. Account e prenotazioni invariati.');
+      return;
+    }
     case 'patty-pin':
       await api('admin/pin', { pin: b.pin, confirm: b.confirm });
       f.reset();
@@ -1004,6 +1022,19 @@ document.addEventListener('click', async (e) => {
       await api('admin/delegate', { id: b.dataset.pattyDelegate, allowed });
       await load();
       notice(allowed ? 'Accesso PATTY autorizzato.' : 'Accesso PATTY revocato.');
+    } else if (b.hasAttribute('data-person-roles')) {
+      const p = state.admin?.people.find((x) => x.id === b.dataset.personRoles);
+      if (!state.user?.admin || !p)
+        throw new Error('Persona non trovata. Aggiorna la pagina.');
+      modal('Modifica ruoli · ' + p.first_name + ' ' + p.last_name,
+        '<form data-form="person-roles" data-person-id="' + esc(p.id) + '">' +
+        '<p class="notice">Puoi selezionare più ruoli. Il codice personale e le prenotazioni rimangono invariati.</p>' +
+        '<div class="checks">' +
+          check('Arbitro', 'wants_referee', !!p.wants_referee) +
+          check('Refertista', 'wants_scorer', !!p.wants_scorer) +
+          check('Dirigente', 'wants_manager', !!p.wants_manager) +
+          check('Allenatore', 'wants_coach', !!p.wants_coach) +
+        '</div><div class="actions"><button type="submit" class="primary">Salva ruoli</button></div></form>');
     } else if (b.hasAttribute('data-person-delete')) {
       if (!confirm('Vuoi eliminare definitivamente questo account? Questa operazione non si può annullare.')) return;
       b.disabled = true;

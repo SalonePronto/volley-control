@@ -118,6 +118,8 @@ const PERSONAL_COOKIE_SECONDS = 400 * 24 * 60 * 60;
 // PATTY: scadenza mobile, rinnovata dall'attività reale nell'app.
 const PATTY_SESSION_MS = 30 * 60 * 1000;
 const PATTY_RENEW_WINDOW_MS = 15 * 60 * 1000;
+const PATTY_SESSION_MS = 30 * 60 * 1000;
+const PATTY_RENEW_WINDOW_MS = 15 * 60 * 1000;
 const PERSONAL_SESSION_EXPIRES = 253402300799000; // fine anno 9999
 const sessionCookie = (token, seconds) =>
   `__Host-vc=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${seconds}`;
@@ -1157,6 +1159,34 @@ async function route(req, env) {
       ]);
     }
     return json({ ok: true, allowed: b.allowed });
+  }
+  if (path === '/api/admin/person/roles' && req.method === 'POST') {
+    const b = await body(req);
+    const fields = ['wants_referee', 'wants_scorer', 'wants_manager', 'wants_coach'];
+    if (!b || typeof b !== 'object' || Array.isArray(b) ||
+        Object.keys(b).sort().join(',') !== ['id', ...fields].sort().join(',') ||
+        typeof b.id !== 'string' || !b.id || b.id.length > 128 ||
+        fields.some((key) => typeof b[key] !== 'boolean'))
+      fail('Selezione ruoli non valida.', 400);
+    if (!fields.some((key) => b[key]))
+      fail('Seleziona almeno un ruolo.', 400);
+    const person = await one(env.DB,
+      'SELECT id,first_name,last_name,wants_referee,wants_scorer,wants_manager,wants_coach FROM people WHERE id=?', b.id);
+    if (!person) fail('Utente non trovato.', 404);
+    const previous = Object.fromEntries(fields.map((key) => [key, !!person[key]]));
+    const updated = Object.fromEntries(fields.map((key) => [key, b[key]]));
+    if (fields.every((key) => previous[key] === updated[key]))
+      return json({ ok: true, changed: false });
+    await env.DB.batch([
+      statement(env.DB,
+        'UPDATE people SET wants_referee=?,wants_scorer=?,wants_manager=?,wants_coach=? WHERE id=?',
+        ...fields.map((key) => b[key] ? 1 : 0), b.id),
+      audit(env.DB, actor, 'person_roles_updated', null, {
+        id: b.id, name: person.first_name + ' ' + person.last_name,
+        before: previous, after: updated,
+      }),
+    ]);
+    return json({ ok: true, changed: true });
   }
   if (path === '/api/admin/person' && req.method === 'POST') {
     const b = await body(req);
