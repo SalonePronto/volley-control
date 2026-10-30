@@ -132,15 +132,24 @@ export async function authenticate(req, env) {
   if (!token) return null;
   const s = await one(
     env.DB,
-    'SELECT s.*, p.approved,p.wants_referee,p.wants_scorer,p.wants_manager,p.wants_coach,p.first_name,p.last_name FROM sessions s LEFT JOIN people p ON p.id=s.person_id WHERE token_hash=? AND expires_at>?',
+    'SELECT s.*, p.approved,p.can_access_patty,p.wants_referee,p.wants_scorer,p.wants_manager,p.wants_coach,p.first_name,p.last_name FROM sessions s LEFT JOIN people p ON p.id=s.person_id WHERE token_hash=? AND expires_at>?',
     await sha(token),
     Date.now(),
   );
   if (!s || (!s.admin && !s.approved)) return null;
+  if (s.person_id) {
+    // L'accesso delegato scade dopo inattività, senza perdere l'accesso personale.
+    if (!s.approved) return null;
+    if (s.admin && (!s.can_access_patty || s.patty_expires_at <= Date.now())) s.admin = 0;
+  }
   return s;
 }
 function admin(s) {
   if (!s?.admin) fail('Accesso PATTY richiesto.', 403);
+}
+function pattyOwner(s) {
+  admin(s);
+  if (s.person_id) fail('Questa impostazione è riservata alla PATTY principale.', 403);
 }
 function csrf(req, s) {
   if (!s || !equal(req.headers.get('x-csrf-token'), s.csrf))
@@ -780,7 +789,7 @@ async function route(req, env) {
       fail('Formato non consentito.', 415);
   }
   const s = await authenticate(req, env);
-  const actor = s?.admin ? 'PATTY' : s?.person_id;
+  const actor = s?.admin ? (s.person_id ? 'PATTY-DELEGATO:' + s.person_id : 'PATTY') : s?.person_id;
   if (path === '/api/health' && req.method === 'GET') {
     const schema = await one(
       env.DB,
@@ -796,7 +805,15 @@ async function route(req, env) {
   }
   if (path === '/api/me' && req.method === 'GET') {
     const headers = {};
-    if (s?.admin) {
+    if (s?.admin && s.person_id) {
+      // PATTY delegato: dopo 30 minuti di inattività torna utente personale, senza perdere il login.
+      const now = Date.now();
+      if (s.patty_expires_at - now <= PATTY_RENEW_WINDOW_MS)
+        await statement(env.DB,
+          'UPDATE sessions SET patty_expires_at=? WHERE token_hash=? AND person_id=? AND admin=1 AND patty_expires_at>?',
+          now + PATTY_SESSION_MS, s.token_hash, s.person_id, now).run();
+      headers['Set-Cookie'] = sessionCookie(sessionToken(req), PERSONAL_COOKIE_SECONDS);
+    } else if (s?.admin) {
       // Rinnovo durante l'uso: nessuna scadenza fissa dall'ultimo login.
       // Aggiornare D1 soltanto nella seconda metà dei 30 minuti.
       const now = Date.now();
@@ -827,6 +844,7 @@ async function route(req, env) {
         ? {
             id: s.person_id,
             admin: !!s.admin,
+            can_access_patty: !!s.can_access_patty,
             first_name: s.first_name,
             last_name: s.last_name,
             wants_referee: !!s.wants_referee,
@@ -896,6 +914,22 @@ async function route(req, env) {
     });
   }
   if (req.method !== 'GET') csrf(req, s);
+  if (path === '/api/auth/patty-enter' && req.method === 'POST') {
+    if (!s?.person_id || !s.approved || !s.can_access_patty)
+      fail('Non hai un’autorizzazione PATTY.', 403);
+    const now = Date.now();
+    await statement(env.DB,
+      'UPDATE sessions SET admin=1,patty_expires_at=? WHERE token_hash=? AND person_id=? AND expires_at>?',
+      now + PATTY_SESSION_MS, s.token_hash, s.person_id, now).run();
+    return json({ ok: true, admin: true });
+  }
+  if (path === '/api/auth/patty-exit' && req.method === 'POST') {
+    if (!s?.person_id || !s.approved) fail('Accesso personale richiesto.', 403);
+    await statement(env.DB,
+      'UPDATE sessions SET admin=0,patty_expires_at=0 WHERE token_hash=? AND person_id=?',
+      s.token_hash, s.person_id).run();
+    return json({ ok: true, admin: false });
+  }
   if (path === '/api/book' && req.method === 'POST') {
     if (!s || s.admin || !s.person_id) fail('Accedi dall’area personale.', 403);
     const b = await body(req);
@@ -967,6 +1001,7 @@ async function route(req, env) {
   }
   admin(s);
   if (path === '/api/admin/pin' && req.method === 'POST') {
+    pattyOwner(s);
     const b = await body(req);
     if (!validCode(b.pin) || b.pin !== b.confirm)
       fail('Ripeti lo stesso codice PATTY di 4 caratteri.');
@@ -983,7 +1018,7 @@ async function route(req, env) {
       ...(await calendar(env.DB)),
       people: await all(
         env.DB,
-        'SELECT id,first_name,last_name,wants_referee,wants_scorer,wants_manager,wants_coach,approved,created_at FROM people ORDER BY last_name,first_name',
+        'SELECT id,first_name,last_name,wants_referee,wants_scorer,wants_manager,wants_coach,approved,can_access_patty,created_at FROM people ORDER BY last_name,first_name',
       ),
       roster: await all(env.DB, 'SELECT r.*,t.name AS official_name,t.group_id AS official_group FROM team_roster r LEFT JOIN teams t ON t.id=r.linked_team_id ORDER BY r.id'),
       fixed: await all(env.DB, 'SELECT * FROM team_fixed'),
@@ -1078,6 +1113,32 @@ async function route(req, env) {
     ]);
     return json({ok:true,team_id:teamId});
   }
+  if (path === '/api/admin/delegate' && req.method === 'POST') {
+    pattyOwner(s);
+    const b = await body(req);
+    if (!b || Object.keys(b).sort().join(',') !== 'allowed,id' ||
+        typeof b.allowed !== 'boolean' || typeof b.id !== 'string' || !b.id)
+      fail('Selezione delegato non valida.', 400);
+    const p = await one(env.DB, 'SELECT id,approved,can_access_patty FROM people WHERE id=?', b.id);
+    if (!p) fail('Persona non trovata.', 404);
+    if (b.allowed && !p.approved) fail('Non puoi autorizzare un account disattivato.', 409);
+    if (!!p.can_access_patty === b.allowed) return json({ ok: true, allowed: b.allowed });
+    if (b.allowed) {
+      // UPDATE condizionato atomico: non possono risultare più di due delegati.
+      const row = await statement(env.DB,
+        'UPDATE people SET can_access_patty=1 WHERE id=? AND approved=1 AND can_access_patty=0 AND (SELECT COUNT(*) FROM people WHERE can_access_patty=1)<2 RETURNING id',
+        b.id).first();
+      if (!row) fail('Sono già presenti due delegati PATTY. Revocane prima uno.', 409);
+      await audit(env.DB, actor, 'patty_delegate_granted', null, { id: b.id });
+    } else {
+      await env.DB.batch([
+        statement(env.DB, 'UPDATE people SET can_access_patty=0 WHERE id=?', b.id),
+        statement(env.DB, 'UPDATE sessions SET admin=0,patty_expires_at=0 WHERE person_id=?', b.id),
+        audit(env.DB, actor, 'patty_delegate_revoked', null, { id: b.id }),
+      ]);
+    }
+    return json({ ok: true, allowed: b.allowed });
+  }
   if (path === '/api/admin/person' && req.method === 'POST') {
     const b = await body(req);
     if (!b || Object.keys(b).sort().join(',') !== 'approved,id' ||
@@ -1087,7 +1148,7 @@ async function route(req, env) {
     if (!person) fail('Utente non trovato.', 404);
     if (!!person.approved === b.approved) return json({ ok: true, approved: b.approved });
     await env.DB.batch([
-      statement(env.DB, 'UPDATE people SET approved=? WHERE id=?', +b.approved, b.id),
+      statement(env.DB, 'UPDATE people SET approved=?,can_access_patty=CASE WHEN ?=0 THEN 0 ELSE can_access_patty END WHERE id=?', +b.approved,+b.approved, b.id),
       ...(b.approved ? [] : [statement(env.DB, 'DELETE FROM sessions WHERE person_id=?', b.id)]),
       audit(env.DB, actor, 'person_access_changed', null, { id: b.id, approved: b.approved }),
     ]);
@@ -1374,11 +1435,13 @@ async function route(req, env) {
       'Content-Disposition': 'attachment; filename="volley-control-backup.json"',
     });
   if (path === '/api/admin/restore' && req.method === 'POST') {
+    pattyOwner(s);
     if (env.RECOVERY_MODE !== 'true')
       fail('Ripristino disponibile solo nell’ambiente di recupero isolato.', 403);
     return json(await startRecovery(env.DB, await body(req)));
   }
   if (path === '/api/admin/restore/step' && req.method === 'POST') {
+    pattyOwner(s);
     if (env.RECOVERY_MODE !== 'true') fail('Ripristino non abilitato.', 403);
     const b = await body(req);
     return json(await recoveryStep(env.DB, b.job_id));
@@ -1455,7 +1518,7 @@ export default {
       (['/api/book', '/api/cancel', '/api/admin/assign',
         '/api/admin/fixed', '/api/admin/fixed/apply',
         '/api/admin/game', '/api/admin/game/flip-home', '/api/admin/override/reset',
-        '/api/admin/manual', '/api/admin/team', '/api/admin/person',
+        '/api/admin/manual', '/api/admin/team', '/api/admin/person', '/api/admin/delegate',
         '/api/admin/roster/staff','/api/admin/roster/pgs-search',
         '/api/admin/roster/fipav-link'].includes(path) ||
         path.startsWith('/api/admin/sync/'))

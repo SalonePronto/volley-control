@@ -213,7 +213,9 @@ async function load() {
 }
 function render() {
   const pending = state.games.filter((g) => !g.date || !g.time);
-  $('#patty').textContent = state.user?.admin ? '🔓 Esci da PATTY' : '🔒 PATTY';
+  $('#patty').textContent = state.user?.admin
+    ? (state.user.id ? '🔓 Torna all’area personale' : '🔓 Esci da PATTY')
+    : state.user?.can_access_patty ? '🔒 Entra in PATTY' : '🔒 PATTY';
   $('#patty').append(
     Object.assign(document.createElement('span'), {
       id: 'pending-dot',
@@ -221,9 +223,9 @@ function render() {
     }),
   );
   $('#identity').textContent =
-    state.user && !state.user.admin ? state.user.first_name + ' ' + state.user.last_name : '';
+    state.user?.id ? state.user.first_name + ' ' + state.user.last_name : '';
   $('#access').textContent =
-    state.user && !state.user.admin ? 'Esci dall’area personale' : 'Area personale';
+    state.user?.id ? 'Esci dall’area personale' : 'Area personale';
   const games = state.games.filter((g) => g.date && g.time && !g.hidden);
   const weeks = [...new Set(games.map((g) => weekOf(g.date)))].sort();
   const baseWeek = state.week || weekOf(isoNow());
@@ -533,19 +535,25 @@ function renderAdmin() {
   const wasOpen = !!document.querySelector('#admin .patty-panel[open]');
   const P = {};
   P.sync = `<div class="actions"><button data-sync="calendar" class="primary">↻ Aggiorna tutti i calendari</button><button data-sync="results">↻ Aggiorna tutti i risultati</button></div><p class="notice">Aggiorna tutte le squadre attive. Le gare non vengono duplicate; le correzioni manuali e le prenotazioni sono conservate.</p>`;
-  P.pin = `<details><summary>Codice PATTY · 4 caratteri ${state.patty_pin_set ? '(attivo)' : '(da impostare)'}</summary><p class="notice">Salva il codice: al prossimo accesso sostituirà la password precedente.</p><form data-form="patty-pin">${codeField('Nuovo codice PATTY', 'pin')}${codeField('Ripeti il codice', 'confirm')}<button>Salva codice PATTY</button></form></details>`;
+  P.pin = !state.user?.id ? `<details><summary>Codice PATTY · 4 caratteri ${state.patty_pin_set ? '(attivo)' : '(da impostare)'}</summary><p class="notice">Salva il codice: al prossimo accesso sostituirà la password precedente.</p><form data-form="patty-pin">${codeField('Nuovo codice PATTY', 'pin')}${codeField('Ripeti il codice', 'confirm')}<button>Salva codice PATTY</button></form></details>` : '';
   P.pending = `<details><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><button type="button" data-open="${esc(g.game_key)}">Apri scheda partita</button></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
+  const delegateCount = a.people.filter((p) => p.can_access_patty).length;
   P.people =
     '<details><summary>Persone registrate (' + a.people.length + ')</summary><p class="notice">I nuovi iscritti accedono subito. Qui puoi vedere i ruoli scelti e disattivare o riattivare gli account.</p>' +
+    (!state.user?.id ? '<p class="notice">Accessi PATTY aggiuntivi: ' + delegateCount + '/2. Autorizza fino a due persone già registrate, senza comunicare il codice PATTY.</p>' : '') +
     (a.people.map((p) => {
       const roles = [
         ['wants_referee', 'Arbitro'], ['wants_scorer', 'Refertista'],
         ['wants_manager', 'Dirigente'], ['wants_coach', 'Allenatore']
       ].filter(([key]) => p[key]).map(([, label]) => label).join(', ') || 'Nessun ruolo';
       return `<div class="person"><b>${esc(p.first_name + ' ' + p.last_name)}</b>
-        <p class="notice">${esc(roles)} · ${p.approved ? 'Attivo' : 'Disattivato'}</p>
+        <p class="notice">${esc(roles)} · ${p.approved ? 'Attivo' : 'Disattivato'}${p.can_access_patty ? ' · Accesso PATTY autorizzato' : ''}</p>
         <button type="button" data-person-access="${esc(p.id)}"
           data-approved="${p.approved ? 'false' : 'true'}">${p.approved ? 'Disattiva account' : 'Riattiva account'}</button>
+        ${!state.user?.id ? `<button type="button" data-patty-delegate="${esc(p.id)}"
+          data-allowed="${p.can_access_patty ? 'false' : 'true'}"
+          ${!p.can_access_patty && (!p.approved || delegateCount >= 2) ? 'disabled' : ''}>
+          ${p.can_access_patty ? 'Revoca accesso PATTY' : 'Autorizza accesso PATTY'}</button>` : ''}
       </div>`;
     }).join('') || '<p>Nessuna persona registrata.</p>') + '</details>';
   const roster=a.roster||[];
@@ -840,13 +848,16 @@ document.addEventListener('click', async (e) => {
       state.week = b.dataset.week;
       render();
     } else if (b.id === 'access') {
-      if (state.user && !state.user.admin) {
+      if (state.user?.id) {
         await api('auth/logout', {});
         await load();
       } else access(false);
     } else if (b.id === 'patty') {
       if (state.user?.admin) {
-        await api('auth/logout', {});
+        await api(state.user.id ? 'auth/patty-exit' : 'auth/logout', {});
+        await load();
+      } else if (state.user?.can_access_patty) {
+        await api('auth/patty-enter', {});
         await load();
       } else access(true);
     } else if (b.dataset.open) await showGame(b.dataset.open);
@@ -912,6 +923,13 @@ document.addEventListener('click', async (e) => {
         result.pending.length + ' ancora da verificare.' +
         (result.pending.length ? ' ' + result.pending.map(x =>
           x.name + ' (' + x.reason + ')').join('; ') : ''));
+    } else if (b.hasAttribute('data-patty-delegate')) {
+      const allowed = b.dataset.allowed === 'true';
+      if (!confirm((allowed ? 'Autorizzare' : 'Revocare') + ' l’accesso PATTY a questa persona?')) return;
+      b.disabled = true;
+      await api('admin/delegate', { id: b.dataset.pattyDelegate, allowed });
+      await load();
+      notice(allowed ? 'Accesso PATTY autorizzato.' : 'Accesso PATTY revocato.');
     } else if (b.hasAttribute('data-person-access')) {
       const approved = b.dataset.approved === 'true';
       if (!confirm('Vuoi ' + (approved ? 'riattivare' : 'disattivare') + ' questo account?')) return;
