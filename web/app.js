@@ -245,15 +245,14 @@ function render() {
     `</select></label>` +
     `<button class="step" ${nextWeek ? `data-week="${nextWeek}"` : 'disabled'} aria-label="Settimana successiva">›</button>`;
   const w = state.week || weekOf(isoNow());
-  $('#title').textContent = state.week ? weekLabel(w) :
-    (state.user?.id && !state.user.admin ? 'Gare da coprire e mie prenotazioni' : 'Gare casalinghe da coprire');
+  $('#title').textContent = state.week ? weekLabel(w) : 'Gare casalinghe da coprire';
   $('#title').classList.toggle('sr-only', !!state.week);
   let rows = games.filter((g) => weekOf(g.date) === w);
   if (!state.week)
     rows = rows.filter(
       (g) =>
         g.is_home &&
-        (roleState(g, 'referee') === 'missing' || roleState(g, 'scorer') === 'missing' || myBooking(g)),
+        (roleState(g, 'referee') === 'missing' || roleState(g, 'scorer') === 'missing'),
     );
   rows.sort((a, b) =>
     (a.date + a.time + a.game_number).localeCompare(b.date + b.time + b.game_number),
