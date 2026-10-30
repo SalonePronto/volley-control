@@ -552,9 +552,3 @@ html, body {
 .fixture.my-coach:active { background: #dacaf7; }
 
 
-/* Prova colore refertisti: solo categoria azzurra come il vecchio banner.
-   Il banner della partita rimane bianco. */
-.fixture.my-scorer .mobile .identity {
-  background: #e0f1ff;
-  color: #14558f;
-}
