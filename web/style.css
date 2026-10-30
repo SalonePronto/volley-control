@@ -521,3 +521,22 @@ html, body {
   text-decoration: underline;
   font-size: 16px;
 }
+
+
+/* Volley Control: evidenza personale delle gare per cui si è prenotati.
+   Azzurro riservato alla scheda dell'utente; i semafori rosso/verde restano invariati. */
+.fixture.my-booking {
+  background: #e0f1ff;
+  border-color: #78b6ef;
+  box-shadow: inset 4px 0 0 #287bd0, 0 2px 12px rgba(25, 95, 170, .12);
+}
+.fixture.my-booking:hover { background: #d2eaff; }
+.fixture.my-booking:active { background: #c4e2fb; }
+.fixture.my-booking .my-booking-label {
+  display: block;
+  margin-top: 4px;
+  color: #14558f;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}

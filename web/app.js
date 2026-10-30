@@ -55,6 +55,11 @@ function weekLabel(w) {
   return 'GARE ' + shortDate(w) + ' – ' + shortDate(e.toISOString().slice(0, 10));
 }
 const assigned = (g) => state.assignments.filter((a) => a.game_key === g.game_key);
+// Evidenzia esclusivamente le partite dell'utente nell'area personale.
+// Vale anche per gli incarichi FISSI assegnati da PATTY.
+const myBooking = (g) =>
+  !!state.user?.id && !state.user.admin &&
+  state.assignments.some((a) => a.game_key === g.game_key && a.person_id === state.user.id);
 const federal = (g, r) => !!g.is_home && !!g['federal_' + r];
 const missingSeats = (g, r) => federal(g, r) ? 0 :
   Math.max(0, required(g, r) - assigned(g).filter((a) => a.role === r).length);
@@ -240,14 +245,15 @@ function render() {
     `</select></label>` +
     `<button class="step" ${nextWeek ? `data-week="${nextWeek}"` : 'disabled'} aria-label="Settimana successiva">›</button>`;
   const w = state.week || weekOf(isoNow());
-  $('#title').textContent = state.week ? weekLabel(w) : 'Gare casalinghe da coprire';
+  $('#title').textContent = state.week ? weekLabel(w) :
+    (state.user?.id && !state.user.admin ? 'Gare da coprire e mie prenotazioni' : 'Gare casalinghe da coprire');
   $('#title').classList.toggle('sr-only', !!state.week);
   let rows = games.filter((g) => weekOf(g.date) === w);
   if (!state.week)
     rows = rows.filter(
       (g) =>
         g.is_home &&
-        (roleState(g, 'referee') === 'missing' || roleState(g, 'scorer') === 'missing'),
+        (roleState(g, 'referee') === 'missing' || roleState(g, 'scorer') === 'missing' || myBooking(g)),
     );
   rows.sort((a, b) =>
     (a.date + a.time + a.game_number).localeCompare(b.date + b.time + b.game_number),
@@ -294,11 +300,13 @@ function rowHTML(g, newDay = false) {
       .map(([r, l]) => l + ': ' + names(g, r))
       .join(' · '),
     whoHtml = who ? '<small class="who">' + esc(who) + '</small>' : '',
+    booked = myBooking(g),
+    bookingLabel = booked ? '<small class="my-booking-label">✓ La mia prenotazione</small>' : '',
     mark = (r, label) => `<span class="mark">${dot(g, r)}<small>${label}</small></span>`,
     seats = g.is_home
       ? `<span class="seats">${mark('referee', 'Arb')}${mark('scorer', 'Ref')}</span>`
       : '<span class="seats"><span class="tag-away">Trasferta</span></span>';
-  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(day)} ${shortDate(g.date)}</b><em>${esc(g.time)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
+  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}${booked ? ' my-booking' : ''}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(day)} ${shortDate(g.date)}</b><em>${esc(g.time)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}${bookingLabel}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
 }
 function modal(title, html) {
   $('#dialog-title').textContent = title;
