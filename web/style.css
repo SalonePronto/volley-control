@@ -532,3 +532,21 @@ html, body {
 }
 .fixture.my-booking:hover { background: #d2eaff; }
 .fixture.my-booking:active { background: #c4e2fb; }
+
+
+/* Colori personali staff: prenotazioni azzurre sempre prioritarie.
+   Non modificare i pallini rosso/verde relativi alle coperture. */
+.fixture.my-manager {
+  background: #e4f6e9;
+  border-color: #87cc9e;
+  box-shadow: inset 4px 0 0 #23844a, 0 2px 12px rgba(19, 104, 57, .10);
+}
+.fixture.my-manager:hover { background: #d6f0df; }
+.fixture.my-manager:active { background: #c7e9d1; }
+.fixture.my-coach {
+  background: #eee6ff;
+  border-color: #b8a1ed;
+  box-shadow: inset 4px 0 0 #7954b7, 0 2px 12px rgba(83, 51, 149, .12);
+}
+.fixture.my-coach:hover { background: #e5d9fc; }
+.fixture.my-coach:active { background: #dacaf7; }

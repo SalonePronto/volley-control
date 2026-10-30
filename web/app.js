@@ -60,6 +60,32 @@ const assigned = (g) => state.assignments.filter((a) => a.game_key === g.game_ke
 const myBooking = (g) =>
   !!state.user?.id && !state.user.admin &&
   state.assignments.some((a) => a.game_key === g.game_key && a.person_id === state.user.id);
+// Colori di riconoscimento dello staff, solo nell'area personale.
+// Lo staff delle squadre usa spesso soltanto il nome: confrontiamo il nome
+// completo quando presente, altrimenti il nome esatto, mai sottostringhe.
+const staffName = (name) => String(name || '')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .trim().replace(/\s+/g, ' ').toLocaleLowerCase('it');
+function staffMatches(value, user) {
+  if (!user?.first_name || !user?.last_name) return false;
+  const first = staffName(user.first_name),
+    full = staffName(user.first_name + ' ' + user.last_name);
+  return String(value || '').split(/[\n,;/]+/)
+    .some((part) => {
+      const listed = staffName(part);
+      return listed && (listed === first || listed === full);
+    });
+}
+function myStaffColor(g, team) {
+  const u = state.user;
+  if (!u?.id || u.admin) return '';
+  const staff = g.staff_override || team;
+  if (u.wants_coach && (staffMatches(staff.coach1, u) || staffMatches(staff.coach2, u)))
+    return ' my-coach';
+  if (u.wants_manager && staffMatches(staff.managers, u))
+    return ' my-manager';
+  return '';
+}
 const federal = (g, r) => !!g.is_home && !!g['federal_' + r];
 const missingSeats = (g, r) => federal(g, r) ? 0 :
   Math.max(0, required(g, r) - assigned(g).filter((a) => a.role === r).length);
@@ -301,11 +327,12 @@ function rowHTML(g, newDay = false) {
       .join(' · '),
     whoHtml = who ? '<small class="who">' + esc(who) + '</small>' : '',
     booked = myBooking(g),
+    staffColor = booked ? '' : myStaffColor(g, t),
     mark = (r, label) => `<span class="mark">${dot(g, r)}<small>${label}</small></span>`,
     seats = g.is_home
       ? `<span class="seats">${mark('referee', 'Arb')}${mark('scorer', 'Ref')}</span>`
       : '<span class="seats"><span class="tag-away">Trasferta</span></span>';
-  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}${booked ? ' my-booking' : ''}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(day)} ${shortDate(g.date)}</b><em>${esc(g.time)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
+  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}${booked ? ' my-booking' : staffColor}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(day)} ${shortDate(g.date)}</b><em>${esc(g.time)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
 }
 function modal(title, html) {
   $('#dialog-title').textContent = title;
