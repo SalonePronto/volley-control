@@ -301,12 +301,11 @@ function rowHTML(g, newDay = false) {
       .join(' · '),
     whoHtml = who ? '<small class="who">' + esc(who) + '</small>' : '',
     booked = myBooking(g),
-    bookingLabel = booked ? '<small class="my-booking-label">✓ La mia prenotazione</small>' : '',
     mark = (r, label) => `<span class="mark">${dot(g, r)}<small>${label}</small></span>`,
     seats = g.is_home
       ? `<span class="seats">${mark('referee', 'Arb')}${mark('scorer', 'Ref')}</span>`
       : '<span class="seats"><span class="tag-away">Trasferta</span></span>';
-  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}${booked ? ' my-booking' : ''}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(day)} ${shortDate(g.date)}</b><em>${esc(g.time)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}${bookingLabel}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
+  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}${booked ? ' my-booking' : ''}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(day)} ${shortDate(g.date)}</b><em>${esc(g.time)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
 }
 function modal(title, html) {
   $('#dialog-title').textContent = title;

@@ -532,11 +532,3 @@ html, body {
 }
 .fixture.my-booking:hover { background: #d2eaff; }
 .fixture.my-booking:active { background: #c4e2fb; }
-.fixture.my-booking .my-booking-label {
-  display: block;
-  margin-top: 4px;
-  color: #14558f;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: .02em;
-}
