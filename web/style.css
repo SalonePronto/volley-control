@@ -550,3 +550,11 @@ html, body {
 }
 .fixture.my-coach:hover { background: #e5d9fc; }
 .fixture.my-coach:active { background: #dacaf7; }
+
+
+/* Prova colore refertisti: solo categoria, il banner rimane bianco.
+   L'arancione acceso si distingue dall'ocra utilizzato dalle altre categorie. */
+.fixture.my-scorer .mobile .identity {
+  background: #ed7a19;
+  color: #ffffff;
+}
