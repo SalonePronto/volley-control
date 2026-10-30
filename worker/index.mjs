@@ -1238,6 +1238,41 @@ async function route(req, env) {
     }
     return json({ ok: true, scope: b.scope });
   }
+  if (path === '/api/admin/game/flip-home' && req.method === 'POST') {
+    const b = await body(req);
+    if (!b || typeof b.game_key !== 'string' || !b.game_key ||
+        typeof b.expected_is_home !== 'boolean') fail('Richiesta casa/trasferta non valida.');
+    const old = await one(env.DB, 'SELECT * FROM games WHERE game_key=?', b.game_key);
+    if (!old) fail('Gara non trovata.', 404);
+    if (!!old.is_home !== b.expected_is_home)
+      fail('La partita è stata modificata. Riapri la scheda e riprova.', 409);
+    const current = JSON.parse(old.effective_json);
+    if (current.played) fail('La partita risulta già disputata: prima verifica il risultato con PATTY.', 409);
+    if (!clean(current.home_team) || !clean(current.away_team))
+      fail('Nomi delle squadre incompleti: correggili prima di invertire la partita.');
+    const goingHome = !b.expected_is_home;
+    if (!goingHome) {
+      const seats = await one(env.DB, 'SELECT COUNT(*) AS total FROM assignments WHERE game_key=?', b.game_key);
+      if (Number(seats?.total || 0) > 0)
+        fail('Sono presenti arbitri o refertisti prenotati (anche FISSI). PATTY deve prima rimuoverli dalla scheda; nessuna prenotazione è stata cancellata.', 409);
+    }
+    const official = JSON.parse(old.official_json);
+    const overrides = { ...JSON.parse(old.overrides_json),
+      is_home: goingHome,
+      home_team: current.away_team,
+      away_team: current.home_team,
+      required_referees: goingHome ? Math.max(1, Number(current.required_referees || 0), Number(official.required_referees || 0)) : 0,
+      required_scorers: goingHome ? Math.max(1, Number(current.required_scorers || 0), Number(official.required_scorers || 0)) : 0,
+    };
+    const g = { ...official, ...overrides };
+    try {
+      await saveGame(env.DB, g, official, overrides, actor, 'PATTY · Inversione casa/trasferta', old.version);
+    } catch (e) {
+      fail(dbMessage(e), 409);
+    }
+    const fixed = goingHome ? await applyFixed(env.DB, g.team_id, [g.game_key]) : null;
+    return json({ ok: true, game: g, fixed });
+  }
   if (path === '/api/admin/game' && req.method === 'POST') {
     const b = await body(req),
       patch = validatePatch(b.patch);
@@ -1419,7 +1454,7 @@ export default {
       req.method === 'POST' && res.ok && env.LIVE_SYNC && ctx?.waitUntil &&
       (['/api/book', '/api/cancel', '/api/admin/assign',
         '/api/admin/fixed', '/api/admin/fixed/apply',
-        '/api/admin/game', '/api/admin/override/reset',
+        '/api/admin/game', '/api/admin/game/flip-home', '/api/admin/override/reset',
         '/api/admin/manual', '/api/admin/team', '/api/admin/person',
         '/api/admin/roster/staff','/api/admin/roster/pgs-search',
         '/api/admin/roster/fipav-link'].includes(path) ||

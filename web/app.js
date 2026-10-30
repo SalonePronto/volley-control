@@ -464,6 +464,12 @@ async function showGame(key) {
         .map((p) => [p.id, p.first_name + ' ' + p.last_name]);
       html += `<details><summary>PATTY · Incarico fisso</summary><form data-form="fixed-sheet" data-key="${esc(key)}" data-team="${esc(g.team_id)}">${select('Ruolo', 'role', [['referee', 'Arbitro'], ['scorer', 'Refertista']])}${select('Persona', 'person_id', [['', 'Scegli una persona'], ...fixedPeople])}<p class="notice">Puoi applicare la scelta solo a questa partita oppure a tutte le prossime partite della squadra.</p>${select('Durata', 'scope', [['match', 'Solo questa partita'], ['future', 'Tutte le prossime partite della squadra']])}<button class="primary">Salva incarico</button></form></details>`;
     }
+    html += `<details><summary>PATTY · Cambia casa / trasferta</summary>
+      <form data-form="flip-home" data-key="${esc(key)}" data-is-home="${g.is_home ? '1' : '0'}">
+        <p class="notice">Stato attuale: <strong>${g.is_home ? 'CASA' : 'TRASFERTA'}</strong>. Il comando invertirà i nomi delle due squadre e aggiornerà il banner della gara nell’elenco. Data, ora e palestra non cambiano.</p>
+        <p class="notice">Le prenotazioni esistenti sono protette: passando in trasferta, eventuali arbitri o refertisti già assegnati devono essere rimossi prima.</p>
+        <button type="submit" class="primary">Passa a ${g.is_home ? 'TRASFERTA' : 'CASA'}</button>
+      </form></details>`;
     html += `<details><summary>PATTY · Correggi dato</summary><form data-form="game-edit" data-key="${esc(key)}">${select(
       'Campo',
       'field',
@@ -662,6 +668,20 @@ async function submit(f) {
         patch: resultPatch(b),
         reason: 'PATTY · Risultato e parziali',
       });
+      break;
+    }
+    case 'flip-home': {
+      const g = state.games.find((x) => x.game_key === f.dataset.key) ||
+        state.admin?.games.find((x) => x.game_key === f.dataset.key);
+      if (!g) throw new Error('Partita non trovata. Ricarica la pagina.');
+      const wasHome = f.dataset.isHome === '1';
+      if (!!g.is_home !== wasHome) throw new Error('La partita è stata aggiornata. Riapri la scheda.');
+      if (!window.confirm(`Confermi il passaggio a ${wasHome ? 'TRASFERTA' : 'CASA'}?\n\n${g.away_team} – ${g.home_team}\n\nPalestra, data e ora restano invariati.`)) return;
+      const r = await api('admin/game/flip-home', {
+        game_key: f.dataset.key,
+        expected_is_home: wasHome,
+      });
+      if (r.game?.date) state.week = weekOf(r.game.date);
       break;
     }
     case 'game-edit': {
