@@ -508,14 +508,69 @@ async function showGame(key) {
     const history = await api('admin/audit?game_key=' + encodeURIComponent(key));
     if (currentGame === key && $('#history'))
       $('#history').innerHTML =
-        history.audit
-          .map(
-            (a) =>
-              `<p class="notice">${esc(a.changed_at)} · ${esc(a.actor)} · ${esc(a.action)} · ${esc(a.details)}</p>`,
-          )
+        history.audit.map(auditCard)
           .join('') || 'Nessuna modifica manuale.';
   }
 }
+function auditActorName(actor) {
+  const value = String(actor || '');
+  if (value === 'PATTY') return 'PATTY';
+  if (value.startsWith('PATTY-DELEGATO:')) {
+    const bar = value.indexOf('|');
+    if (bar !== -1) return value.slice(bar + 1);
+    const id = value.slice('PATTY-DELEGATO:'.length);
+    const user = state.admin?.people?.find((p) => p.id === id);
+    return user ? user.first_name + ' ' + user.last_name : 'Collaboratore PATTY';
+  }
+  const user = state.admin?.people?.find((p) => p.id === value);
+  return user ? user.first_name + ' ' + user.last_name : ({
+    sync: 'Aggiornamento automatico',
+    system: 'Sistema',
+    'PATTY-AUTO': 'Assegnazione automatica',
+  }[value] || value);
+}
+function auditDescription(record) {
+  let details = {};
+  try { details = JSON.parse(record.details || '{}'); } catch {}
+  const labels = {
+    game_modified: 'Partita modificata',
+    booking_request: 'Prenotazione inserita',
+    cancelled: 'Prenotazione rimossa',
+    team_saved: 'Squadra modificata',
+    roster_staff_changed: 'Staff squadra modificato',
+    team_staff_permanent: 'Staff aggiornato per tutte le gare',
+    roster_linked: 'Calendario squadra collegato',
+    fixed_changed: 'Incarico fisso modificato',
+    fixed_applied: 'Incarico fisso applicato',
+    patty_delegate_granted: 'Accesso PATTY autorizzato',
+    patty_delegate_revoked: 'Accesso PATTY revocato',
+    person_deleted: 'Account eliminato',
+    patty_pin_changed: 'Codice PATTY modificato',
+    calendar_sync_started: 'Aggiornamento calendari avviato',
+    source_updated: 'Dati ufficiali aggiornati',
+    assigned: 'Prenotazione registrata',
+    assignment_removed: 'Prenotazione cancellata',
+  };
+  const base = labels[record.action] || record.action;
+  let suffix = '';
+  if (record.action === 'game_modified' && details.reason) suffix = ' · ' + String(details.reason);
+  if (record.action === 'person_deleted' && details.name) suffix = ' · ' + details.name;
+  if (record.action === 'calendar_sync_started' && details.scope)
+    suffix = ' · ' + details.scope + (details.results_only ? ' (risultati)' : '');
+  if (record.action === 'booking_request' && details.role)
+    suffix = ' · ' + (details.role === 'scorer' ? 'Refertista' : 'Arbitro');
+  return base + suffix;
+}
+function auditCard(record) {
+  const date = new Date(record.changed_at);
+  const time = isNaN(date.valueOf()) ? String(record.changed_at) :
+    date.toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
+  const game = record.game_key ? ' · Gara ' + String(record.game_key).slice(-32) : '';
+  return '<p class="notice"><b>' + esc(time) + '</b> · ' +
+    esc(auditActorName(record.actor)) + ' · ' +
+    esc(auditDescription(record)) + esc(game) + '</p>';
+}
+
 function teamForm(t = {}) {
   return `<form data-form="team" data-id="${esc(t.id || '')}"><div class="grid">${select(
     'Comitato',
@@ -586,6 +641,10 @@ function renderAdmin() {
     '<details><summary>Aggiungi squadra</summary>' +
     teamForm() +
     '</details></details>';
+  P.activity = '<details><summary>Registro modifiche · riservato PATTY</summary>' +
+    '<p class="notice">Mostra chi ha effettuato le modifiche, con data e ora. Visibile solo a PATTY e ai due collaboratori autorizzati.</p>' +
+    '<button type="button" data-activity-load>Mostra ultime modifiche</button>' +
+    '<div id="patty-activity"></div></details>';
   P.manual = `<details><summary>Inserimento manuale di una gara</summary><form data-form="manual">${select(
     'Squadra',
     'team_id',
@@ -594,7 +653,7 @@ function renderAdmin() {
   const badge = pending.length
     ? `<span class="badge warn">${pending.length} ${pending.length === 1 ? 'gara' : 'gare'} da completare</span>`
     : '<span class="badge">Tutto in ordine</span>';
-  $('#admin').innerHTML = `<details class="patty-panel" ${wasOpen ? 'open' : ''}><summary><span>Strumenti PATTY</span>${badge}</summary><div class="patty-body"><h2>PATTY · Comandi riservati</h2><section class="pgroup"><h3>Aggiornare</h3>${P.sync}</section><section class="pgroup"><h3>Gare</h3>${P.pending}${P.manual}</section><section class="pgroup"><h3>Squadre e persone</h3>${P.roster}${P.teams}${P.people}</section><section class="pgroup"><h3>Sistema</h3>${P.pin}</section></div></details>`;
+  $('#admin').innerHTML = `<details class="patty-panel" ${wasOpen ? 'open' : ''}><summary><span>Strumenti PATTY</span>${badge}</summary><div class="patty-body"><h2>PATTY · Comandi riservati</h2><section class="pgroup"><h3>Aggiornare</h3>${P.sync}</section><section class="pgroup"><h3>Gare</h3>${P.pending}${P.manual}</section><section class="pgroup"><h3>Squadre e persone</h3>${P.roster}${P.teams}${P.people}</section><section class="pgroup"><h3>Sistema</h3>${P.pin}${P.activity}</section></div></details>`;
 }
 async function syncAll(resultsOnly) {
   const scopes = [
@@ -923,6 +982,14 @@ document.addEventListener('click', async (e) => {
         result.pending.length + ' ancora da verificare.' +
         (result.pending.length ? ' ' + result.pending.map(x =>
           x.name + ' (' + x.reason + ')').join('; ') : ''));
+    } else if (b.hasAttribute('data-activity-load')) {
+      b.disabled = true;
+      try {
+        const log = await api('admin/activity');
+        const output = $('#patty-activity');
+        if (output) output.innerHTML = log.activity.map(auditCard).join('') ||
+          '<p class="notice">Nessuna modifica registrata.</p>';
+      } finally { b.disabled = false; }
     } else if (b.hasAttribute('data-patty-delegate')) {
       const allowed = b.dataset.allowed === 'true';
       if (!confirm((allowed ? 'Autorizzare' : 'Revocare') + ' l’accesso PATTY a questa persona?')) return;

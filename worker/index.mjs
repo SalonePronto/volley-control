@@ -789,7 +789,9 @@ async function route(req, env) {
       fail('Formato non consentito.', 415);
   }
   const s = await authenticate(req, env);
-  const actor = s?.admin ? (s.person_id ? 'PATTY-DELEGATO:' + s.person_id : 'PATTY') : s?.person_id;
+  const actor = s?.admin
+    ? (s.person_id ? 'PATTY-DELEGATO:' + s.person_id + '|' + s.first_name + ' ' + s.last_name : 'PATTY')
+    : s?.person_id;
   if (path === '/api/health' && req.method === 'GET') {
     const schema = await one(
       env.DB,
@@ -1236,7 +1238,11 @@ async function route(req, env) {
   }
   if (path === '/api/admin/fixed/apply' && req.method === 'POST') {
     const b = await body(req);
-    return json({ ok: true, ...(await applyFixed(env.DB, null, [b.game_key])) });
+    const applied = await applyFixed(env.DB, null, [b.game_key]);
+    await audit(env.DB, actor, 'fixed_applied', b.game_key, {
+      created: applied.created, conflicts: applied.conflicts?.length || 0,
+    }).run();
+    return json({ ok: true, ...applied });
   }
   if (path === '/api/admin/assign' && req.method === 'POST') {
     const b = await body(req);
@@ -1418,12 +1424,24 @@ async function route(req, env) {
   }
   if (path === '/api/admin/sync' && req.method === 'POST') {
     const b = await body(req);
-    return json(await syncScope(env, clean(b.scope), b.results_only === true));
+    const scope = clean(b.scope);
+    const result = await syncScope(env, scope, b.results_only === true);
+    await audit(env.DB, actor, 'calendar_sync_started', null, {
+      scope, results_only: b.results_only === true,
+    }).run();
+    return json(result);
   }
   if (path === '/api/admin/sync/step' && req.method === 'POST') {
     const b = await body(req);
     return json(await syncStep(env, clean(b.job_id)));
   }
+  // Registro riservato: soltanto gli interventi manuali di PATTY e collaboratori.
+  // La query non espone le azioni agli utenti normali: admin(s) è già verificato.
+  if (path === '/api/admin/activity' && req.method === 'GET')
+    return json({
+      activity: await all(env.DB,
+        "SELECT id,actor,action,game_key,details,changed_at FROM audit WHERE actor='PATTY' OR actor LIKE 'PATTY-DELEGATO:%' ORDER BY id DESC LIMIT 150"),
+    });
   if (path === '/api/admin/audit' && req.method === 'GET')
     return json({
       audit: await all(
