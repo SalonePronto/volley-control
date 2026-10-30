@@ -457,6 +457,16 @@ async function showGame(key) {
     : `<div class="staff"><h3>Staff squadra</h3>${staffLine('Allenatore', staff.coach1 || 'Da inserire')}${staffLine('Secondo allenatore', staff.coach2)}${managers.length ? managers.map((m, i) => staffLine(i ? '' : managers.length > 1 ? 'Dirigenti' : 'Dirigente', m)).join('') : staffLine('Dirigenti', 'Da inserire')}</div>`;
   let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="strip"><span>Gara <b>${esc(g.game_number || 'n. non presente')}</b></span><span class="pill ${g.is_home ? 'home' : 'away'}">${g.is_home ? 'Casa' : 'Trasferta'}</span><span>${esc(g.source)}</span></div>${placeBlock}${staffBlock}${resultCard(g)}${g.notes ? card('Note', g.notes) : ''}`;
   if (state.user?.admin) {
+    // Ogni correzione di una singola partita avviene nella sua scheda.
+    // Una gara incompleta deve ricevere data e ora insieme, senza duplicare moduli altrove.
+    if (!g.date || !g.time) {
+      html += `<section class="card"><h3>PATTY · Completa data e ora</h3>
+        <form data-form="pending" data-key="${esc(key)}">
+          <div class="grid">${field('Data confermata', 'date', g.date || '', 'date', true)}${field('Ora confermata', 'time', g.time || '', 'time', true)}</div>
+          ${field('Motivo / riferimento', 'reason')}
+          <button class="primary">Salva data e ora della partita</button>
+        </form></section>`;
+    }
     if (g.is_home) {
       html += `<section class="card"><h3>PATTY · Designazione federale</h3><form data-form="federal" data-key="${esc(key)}"><div class="actions">${check('Arbitro federale', 'federal_referee', federal(g, 'referee'))}${check('Refertista federale', 'federal_scorer', federal(g, 'scorer'))}</div><p class="notice">Federale: posto coperto e non prenotabile. Se già occupato, rimuovi prima l’incarico.</p><button class="primary">Salva scelta federali</button></form></section>`;
       const fixedPeople = (state.admin?.people || [])
@@ -473,7 +483,9 @@ async function showGame(key) {
     html += `<details><summary>PATTY · Correggi dato</summary><form data-form="game-edit" data-key="${esc(key)}">${select(
       'Campo',
       'field',
-      Object.entries(FIELDS).map(([k, v]) => [k, v]),
+      Object.entries(FIELDS)
+        .filter(([k]) => (g.date && g.time) || !['date', 'time'].includes(k))
+        .map(([k, v]) => [k, v]),
     )}${field('Nuovo valore', 'value')}${field('Motivo / riferimento', 'reason')}<button>Salva modifica</button></form></details>`;
     const conflicts = state.admin.conflicts.filter((c) => c.game_key === key);
     html += conflicts.length
@@ -522,7 +534,7 @@ function renderAdmin() {
   const P = {};
   P.sync = `<div class="actions"><button data-sync="calendar" class="primary">↻ Aggiorna tutti i calendari</button><button data-sync="results">↻ Aggiorna tutti i risultati</button></div><p class="notice">Aggiorna tutte le squadre attive. Le gare non vengono duplicate; le correzioni manuali e le prenotazioni sono conservate.</p>`;
   P.pin = `<details><summary>Codice PATTY · 4 caratteri ${state.patty_pin_set ? '(attivo)' : '(da impostare)'}</summary><p class="notice">Salva il codice: al prossimo accesso sostituirà la password precedente.</p><form data-form="patty-pin">${codeField('Nuovo codice PATTY', 'pin')}${codeField('Ripeti il codice', 'confirm')}<button>Salva codice PATTY</button></form></details>`;
-  P.pending = `<details><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><form data-form="pending" data-key="${esc(g.game_key)}"><div class="grid">${field('Data confermata', 'date', g.date || '', 'date', true)}${field('Ora confermata', 'time', g.time || '', 'time', true)}</div>${field('Motivo / riferimento', 'reason')}<button>Salva e inserisci nel calendario</button></form></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
+  P.pending = `<details><summary>🔵 Gare con dati primari incompleti (${pending.length})</summary>${pending.map((g) => `<div class="card"><p>${esc(g.category)} · ${esc(g.source)} · Gara ${esc(g.game_number)}</p><small>${esc(g.home_team)} – ${esc(g.away_team)}</small><button type="button" data-open="${esc(g.game_key)}">Apri scheda partita</button></div>`).join('') || '<p>Nessuna gara incompleta.</p>'}</details>`;
   P.people =
     '<details><summary>Persone registrate (' + a.people.length + ')</summary><p class="notice">I nuovi iscritti accedono subito. Qui puoi vedere i ruoli scelti e disattivare o riattivare gli account.</p>' +
     (a.people.map((p) => {
