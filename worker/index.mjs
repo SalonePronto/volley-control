@@ -920,10 +920,27 @@ async function route(req, env) {
     if (!s?.person_id || !s.approved || !s.can_access_patty)
       fail('Non hai un’autorizzazione PATTY.', 403);
     const now = Date.now();
-    await statement(env.DB,
-      'UPDATE sessions SET admin=1,patty_expires_at=? WHERE token_hash=? AND person_id=? AND expires_at>?',
-      now + PATTY_SESSION_MS, s.token_hash, s.person_id, now).run();
-    return json({ ok: true, admin: true });
+    try {
+      // Verifica che la sessione personale sia stata davvero promossa.
+      // Prima la chiamata rispondeva OK anche in caso di UPDATE senza righe modificate.
+      const result = await statement(env.DB,
+        'UPDATE sessions SET admin=1,patty_expires_at=? WHERE token_hash=? AND person_id=? AND expires_at>?',
+        now + PATTY_SESSION_MS, s.token_hash, s.person_id, now).run();
+      if (result?.meta?.changes !== 1)
+        fail('La sessione personale è scaduta. Esci e rientra nell’area personale.', 409);
+      return json({ ok: true, admin: true });
+    } catch (error) {
+      // Diagnostica riservata nel DB: nessuna password o token viene registrato.
+      try {
+        await audit(env.DB, 'system', 'patty_entry_failure', null, {
+          person_id: s.person_id,
+          message: String(error?.message || error).slice(0, 220),
+          code: error?.status || 500,
+        }).run();
+      } catch { /* La diagnostica non deve cambiare l'errore originale. */ }
+      if (error.status) throw error;
+      fail('Accesso PATTY non riuscito: errore tecnico VC-58. Segnalalo all’organizzatore.', 503);
+    }
   }
   if (path === '/api/auth/patty-exit' && req.method === 'POST') {
     if (!s?.person_id || !s.approved) fail('Accesso personale richiesto.', 403);
