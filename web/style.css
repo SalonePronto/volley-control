@@ -552,3 +552,8 @@ html, body {
 .fixture.my-coach:active { background: #dacaf7; }
 
 
+
+.team-filter { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; background: #fff; border-radius: 14px; padding: 10px 12px; box-shadow: var(--shadow); }
+.team-filter span { font-size: 11px; color: var(--muted); }
+.team-filter select { width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff; color: var(--ink); font-weight: 600; }
+.team-week-heading { background: var(--blue); color: #fff; border-radius: 10px; margin: 10px 0 6px; padding: 8px 12px; font-size: 13px; }
