@@ -397,7 +397,7 @@ function downloadTeamCalendarPdf() {
   };
   const pdfEscape = (value) => winAnsi(value).replace(/[\\()]/g, (char) => '\\' + char);
   const wrap = (value, width, size = 8) => {
-    const limit = Math.max(8, Math.floor(width / (size * 0.52)));
+    const limit = Math.max(8, Math.floor(width / (size * 0.64)));
     const lines = [];
     for (const paragraph of String(value || '').split(/\r?\n/)) {
       let line = '';
@@ -428,7 +428,7 @@ function downloadTeamCalendarPdf() {
   games.forEach((game, index) => {
     const group = game.date ? weekOf(game.date) : 'undated';
     if (group !== lastGroup) {
-      items.push({ kind: 'group', label: group === 'undated' ? 'GARE SENZA DATA' : weekLabel(group), height: 22 });
+      items.push({ kind: 'group', label: group === 'undated' ? 'GARE SENZA DATA' : weekLabel(group), height: 18 });
       lastGroup = group;
     }
     const dateLines = game.date ? [shortDate(game.date) + '/' + game.date.slice(0, 4), game.time || 'Ora da definire'] : ['Data da definire', game.time || 'Ora da definire'];
@@ -436,13 +436,16 @@ function downloadTeamCalendarPdf() {
     const away = wrap(game.away_team || 'Squadra da definire', widths[3] - 10);
     const place = wrap([game.venue, game.address, game.notes].filter(Boolean).join(' · ') || 'Palestra da definire', widths[4] - 10);
     const lines = Math.max(dateLines.length, home.length, away.length, place.length, 1);
-    items.push({ kind: 'game', game, index, dateLines, home, away, place, height: Math.max(30, lines * 10 + 10) });
+    items.push({ kind: 'game', game, index, dateLines, home, away, place, height: Math.max(26, lines * 9 + 8) });
   });
   if (!items.length) items.push({ kind: 'empty', label: 'Nessuna gara registrata per questa squadra.', height: 32 });
   const pages = [];
   let page = [], cursor = 468;
-  for (const item of items) {
-    if (cursor - item.height < 42 && page.length) {
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+    const item = items[itemIndex];
+    const following = item.kind === 'group' ? items[itemIndex + 1] : null;
+    const needed = item.height + (following?.kind === 'game' ? following.height : 0);
+    if (cursor - needed < 42 && page.length) {
       pages.push(page);
       page = [];
       cursor = 468;
@@ -471,8 +474,8 @@ function downloadTeamCalendarPdf() {
     let y = 468, rowNumber = 0;
     for (const item of pageItems) {
       if (item.kind === 'group') {
-        rect(left, y - item.height + 2, 762, 20, [232, 238, 249]);
-        text(left + 7, y - 12, item.label, 8, 'F2', [35, 73, 158]);
+        rect(left, y - item.height + 2, 762, 16, [232, 238, 249]);
+        text(left + 7, y - 11, item.label, 8, 'F2', [35, 73, 158]);
         y -= item.height;
         continue;
       }
@@ -487,9 +490,9 @@ function downloadTeamCalendarPdf() {
       for (const x of xs.slice(1, -1)) line(x, bottom, x, top);
       const writeLines = (x, values, width) => {
         values.forEach((value, i) => {
-          const baseline = top - 12 - i * 10;
-          const maximum = Math.floor((width - 10) / (8 * 0.52));
-          text(x + 5, baseline, value.length > maximum ? value.slice(0, maximum - 1) + '…' : value, 8);
+          const baseline = top - 10 - i * 9;
+          const maximum = Math.floor((width - 10) / (7.5 * 0.64));
+          text(x + 5, baseline, value.length > maximum ? value.slice(0, maximum - 1) + '…' : value, 7.5);
         });
       };
       text(xs[0] + 5, top - 17, String(game.game_number || item.index + 1), 8);
