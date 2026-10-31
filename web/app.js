@@ -284,6 +284,7 @@ function render() {
       `<option value="${esc(team.id)}" ${String(team.id) === selectedTeamId ? 'selected' : ''}>${esc(teamLabel(team))}</option>`,
     ).join('');
   $('#weeks').hidden = !!selectedTeamId;
+  $('#download-team-pdf').hidden = !selectedTeamId;
   const weeks = [...new Set(games.map((g) => weekOf(g.date)))].sort();
   const baseWeek = state.week || weekOf(isoNow());
   const prevWeek = [...weeks].reverse().find((x) => x < baseWeek),
@@ -375,7 +376,171 @@ function render() {
   $('#admin').hidden = !state.user?.admin;
   if (state.user?.admin) renderAdmin();
 }
-function rowHTML(g, newDay = false) {
+function downloadTeamCalendarPdf() {
+  const team = state.teams.find((t) => String(t.id) === selectedTeamId);
+  if (!team) return;
+  const games = state.games
+    .filter((g) => !g.hidden && String(g.team_id) === selectedTeamId)
+    .sort((a, b) =>
+      (a.date || '9999-99-99').localeCompare(b.date || '9999-99-99') ||
+      (a.time || '99:99').localeCompare(b.time || '99:99') ||
+      String(a.game_number || '').localeCompare(String(b.game_number || '')),
+    );
+  const winAnsi = (value) => {
+    const special = { '€': 128, '‚': 130, 'ƒ': 131, '„': 132, '…': 133, '†': 134, '‡': 135, 'ˆ': 136, '‰': 137, 'Š': 138, '‹': 139, 'Œ': 140, 'Ž': 142, '‘': 145, '’': 146, '“': 147, '”': 148, '•': 149, '–': 150, '—': 151, '˜': 152, '™': 153, 'š': 154, '›': 155, 'œ': 156, 'ž': 158, 'Ÿ': 159 };
+    let out = '';
+    for (const char of String(value ?? '')) {
+      const point = char.codePointAt(0);
+      out += String.fromCharCode(special[char] ?? (point >= 32 && point <= 255 ? point : 63));
+    }
+    return out;
+  };
+  const pdfEscape = (value) => winAnsi(value).replace(/[\\()]/g, (char) => '\\' + char);
+  const wrap = (value, width, size = 8) => {
+    const limit = Math.max(8, Math.floor(width / (size * 0.52)));
+    const lines = [];
+    for (const paragraph of String(value || '').split(/\r?\n/)) {
+      let line = '';
+      for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+        if (line && (line + ' ' + word).length <= limit) line += ' ' + word;
+        else if (!line && word.length <= limit) line = word;
+        else {
+          if (line) lines.push(line);
+          let part = word;
+          while (part.length > limit) {
+            lines.push(part.slice(0, limit));
+            part = part.slice(limit);
+          }
+          line = part;
+        }
+      }
+      if (line) lines.push(line);
+    }
+    return lines.length ? lines : [''];
+  };
+  const color = (rgb, stroke = false) => rgb.map((n) => (n / 255).toFixed(3)).join(' ') + (stroke ? ' RG' : ' rg');
+  const widths = [34, 72, 175, 175, 250, 56];
+  const left = 40;
+  const xs = [left];
+  widths.forEach((width) => xs.push(xs[xs.length - 1] + width));
+  const items = [];
+  let lastGroup = '';
+  games.forEach((game, index) => {
+    const group = game.date ? weekOf(game.date) : 'undated';
+    if (group !== lastGroup) {
+      items.push({ kind: 'group', label: group === 'undated' ? 'GARE SENZA DATA' : weekLabel(group), height: 22 });
+      lastGroup = group;
+    }
+    const dateLines = game.date ? [shortDate(game.date) + '/' + game.date.slice(0, 4), game.time || 'Ora da definire'] : ['Data da definire', game.time || 'Ora da definire'];
+    const home = wrap(game.home_team || 'Squadra da definire', widths[2] - 10);
+    const away = wrap(game.away_team || 'Squadra da definire', widths[3] - 10);
+    const place = wrap([game.venue, game.address, game.notes].filter(Boolean).join(' · ') || 'Palestra da definire', widths[4] - 10);
+    const lines = Math.max(dateLines.length, home.length, away.length, place.length, 1);
+    items.push({ kind: 'game', game, index, dateLines, home, away, place, height: Math.max(30, lines * 10 + 10) });
+  });
+  if (!items.length) items.push({ kind: 'empty', label: 'Nessuna gara registrata per questa squadra.', height: 32 });
+  const pages = [];
+  let page = [], cursor = 468;
+  for (const item of items) {
+    if (cursor - item.height < 42 && page.length) {
+      pages.push(page);
+      page = [];
+      cursor = 468;
+    }
+    page.push(item);
+    cursor -= item.height;
+  }
+  if (page.length) pages.push(page);
+  const pageStreams = pages.map((pageItems, pageIndex) => {
+    const ops = [];
+    const rect = (x, y, w, h, rgb) => ops.push(color(rgb) + ' ' + x + ' ' + y + ' ' + w + ' ' + h + ' re f');
+    const line = (x1, y1, x2, y2, rgb = [214, 222, 234]) => ops.push(color(rgb, true) + ' 0.5 w ' + x1 + ' ' + y1 + ' m ' + x2 + ' ' + y2 + ' l S');
+    const text = (x, y, value, size = 8, font = 'F1', rgb = [28, 42, 61]) =>
+      ops.push(color(rgb) + ' BT /' + font + ' ' + size + ' Tf 1 0 0 1 ' + x + ' ' + y + ' Tm (' + pdfEscape(value) + ') Tj ET');
+    rect(0, 513, 842, 82, [20, 42, 76]);
+    text(40, 565, 'CALENDARIO COMPLETO', 18, 'F2', [255, 255, 255]);
+    const teamTitle = wrap(String(team.name || 'Squadra'), 748, 11).slice(0, 2);
+    teamTitle.forEach((part, i) => text(40, 546 - i * 13, part, 11, 'F2', [255, 255, 255]));
+    const scope = team.source === 'FIPAV' ? team.group_id : team.competition;
+    const details = [team.category, team.source, team.season, scope ? (team.source === 'FIPAV' ? 'Girone ' : 'Campionato ') + scope : '', games.length + ' gare'].filter(Boolean).join(' · ');
+    text(40, teamTitle.length > 1 ? 520 : 529, details, 8, 'F1', [222, 231, 244]);
+    rect(left, 476, 762, 20, [47, 91, 234]);
+    ['N.', 'DATA / ORA', 'SQUADRA CASA', 'SQUADRA OSPITE', 'PALESTRA / INDIRIZZO', 'RIS.'].forEach((label, i) =>
+      text(xs[i] + 4, 483, label, 7, 'F2', [255, 255, 255]),
+    );
+    let y = 468, rowNumber = 0;
+    for (const item of pageItems) {
+      if (item.kind === 'group') {
+        rect(left, y - item.height + 2, 762, 20, [232, 238, 249]);
+        text(left + 7, y - 12, item.label, 8, 'F2', [35, 73, 158]);
+        y -= item.height;
+        continue;
+      }
+      if (item.kind === 'empty') {
+        text(left + 5, y - 18, item.label, 9, 'F1');
+        y -= item.height;
+        continue;
+      }
+      const top = y, bottom = y - item.height, game = item.game;
+      rect(left, bottom, 762, item.height, rowNumber++ % 2 ? [255, 255, 255] : [248, 250, 253]);
+      line(left, bottom, xs[xs.length - 1], bottom);
+      for (const x of xs.slice(1, -1)) line(x, bottom, x, top);
+      const writeLines = (x, values, width) => {
+        values.forEach((value, i) => {
+          const baseline = top - 12 - i * 10;
+          const maximum = Math.floor((width - 10) / (8 * 0.52));
+          text(x + 5, baseline, value.length > maximum ? value.slice(0, maximum - 1) + '…' : value, 8);
+        });
+      };
+      text(xs[0] + 5, top - 17, String(game.game_number || item.index + 1), 8);
+      writeLines(xs[1], item.dateLines, widths[1]);
+      writeLines(xs[2], item.home, widths[2]);
+      writeLines(xs[3], item.away, widths[3]);
+      writeLines(xs[4], item.place, widths[4]);
+      const result = game.played ? String(game.home_sets ?? '') + '-' + String(game.away_sets ?? '') : '—';
+      text(xs[5] + 7, top - 17, result, 8, game.played ? 'F2' : 'F1');
+      y = bottom;
+    }
+    line(left, 34, 802, 34, [194, 204, 219]);
+    text(left, 21, 'VOLLEY CONTROL · Calendario squadra', 7, 'F1', [103, 116, 135]);
+    text(742, 21, String(pageIndex + 1) + ' / ' + pages.length, 7, 'F2', [103, 116, 135]);
+    return ops.join('\n');
+  });
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [' + pageStreams.map((_, i) => (5 + i * 2) + ' 0 R').join(' ') + '] /Count ' + pageStreams.length + ' >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>',
+  ];
+  pageStreams.forEach((stream, i) => {
+    const pageId = 5 + i * 2, streamId = pageId + 1;
+    objects.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ' + streamId + ' 0 R >>');
+    objects.push('<< /Length ' + stream.length + ' >>\nstream\n' + stream + '\nendstream');
+  });
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, i) => {
+    offsets.push(pdf.length);
+    pdf += (i + 1) + ' 0 obj\n' + object + '\nendobj\n';
+  });
+  const xref = pdf.length;
+  pdf += 'xref\n0 ' + (objects.length + 1) + '\n0000000000 65535 f \n';
+  offsets.slice(1).forEach((offset) => { pdf += String(offset).padStart(10, '0') + ' 00000 n \n'; });
+  pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF';
+  const bytes = Uint8Array.from(pdf, (char) => char.charCodeAt(0));
+  const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  const slug = String(team.name || 'squadra').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-|-$/g, '') || 'squadra';
+  anchor.href = url;
+  anchor.download = 'calendario-' + slug + '.pdf';
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function rowHTML(function rowHTML(g, newDay = false) {
   const t = state.teams.find((t) => t.id === g.team_id) || {},
     cat = ((g.category || t.category || '').match(/\bU\s*\d+/i)?.[0].replace(/\s/g, '') || g.category || t.category || '').replace(/DIVISIONE/i, 'DIV.'),
     longCat = cat.length > 5,
@@ -1025,6 +1190,8 @@ document.addEventListener('click', async (e) => {
     } else if (b.id === 'close-dialog') {
       $('#dialog').close();
       currentGame = null;
+    } else if (b.id === 'download-team-pdf') {
+      downloadTeamCalendarPdf();
     } else if (b.id === 'home') {
       selectedTeamId = '';
       state.week = null;
