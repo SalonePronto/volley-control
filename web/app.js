@@ -540,7 +540,7 @@ function downloadTeamCalendarPdf() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function rowHTML(function rowHTML(g, newDay = false) {
+function rowHTML(g, newDay = false) {
   const t = state.teams.find((t) => t.id === g.team_id) || {},
     cat = ((g.category || t.category || '').match(/\bU\s*\d+/i)?.[0].replace(/\s/g, '') || g.category || t.category || '').replace(/DIVISIONE/i, 'DIV.'),
     longCat = cat.length > 5,
