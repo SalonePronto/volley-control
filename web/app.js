@@ -15,6 +15,7 @@ let state = {
     registration_enabled: false,
   },
   currentGame = null;
+let selectedTeamId = '';
 const ROLES = { referee: 'Arbitro', scorer: 'Refertista' };
 // NOVAVISION: gestione manuale definitiva, esclusa dai collegamenti automatici.
 const manualCalendarOnly = (team) => /\bNOVAVISION\b/i.test(team.name || '');
@@ -257,7 +258,32 @@ function render() {
     state.user?.id ? state.user.first_name + ' ' + state.user.last_name : '';
   $('#access').textContent =
     state.user?.id ? 'Esci dall’area personale' : 'Area personale';
-  const games = state.games.filter((g) => g.date && g.time && !g.hidden);
+  const visibleGames = state.games.filter((g) => !g.hidden);
+  const games = visibleGames.filter((g) => g.date && g.time);
+  const teamsWithGames = new Set(visibleGames.map((g) => g.team_id).filter(Boolean));
+  const teamById = new Map(state.teams.map((t) => [String(t.id), t]));
+  const teamLabel = (team) => {
+    const scope = team.source === 'FIPAV' ? team.group_id : team.competition;
+    return [
+      team.category,
+      team.name,
+      team.source,
+      team.season,
+      scope ? (team.source === 'FIPAV' ? 'Girone ' : 'Campionato ') + scope : '',
+    ].filter(Boolean).join(' · ');
+  };
+  const teamOptions = [...teamsWithGames]
+    .map((id) => teamById.get(String(id)))
+    .filter(Boolean)
+    .sort((a, b) => teamLabel(a).localeCompare(teamLabel(b), 'it'));
+  if (selectedTeamId && !teamOptions.some((team) => String(team.id) === selectedTeamId))
+    selectedTeamId = '';
+  $('#team-select').innerHTML =
+    '<option value="">Tutte le squadre · vista attuale</option>' +
+    teamOptions.map((team) =>
+      `<option value="${esc(team.id)}" ${String(team.id) === selectedTeamId ? 'selected' : ''}>${esc(teamLabel(team))}</option>`,
+    ).join('');
+  $('#weeks').hidden = !!selectedTeamId;
   const weeks = [...new Set(games.map((g) => weekOf(g.date)))].sort();
   const baseWeek = state.week || weekOf(isoNow());
   const prevWeek = [...weeks].reverse().find((x) => x < baseWeek),
@@ -270,21 +296,36 @@ function render() {
     weeks.map((x) => `<option value="${x}" ${state.week === x ? 'selected' : ''}>${range(x)}</option>`).join('') +
     `</select></label>` +
     `<button class="step" ${nextWeek ? `data-week="${nextWeek}"` : 'disabled'} aria-label="Settimana successiva">›</button>`;
+  const selectedTeam = teamOptions.find((team) => String(team.id) === selectedTeamId);
   const w = state.week || weekOf(isoNow());
-  $('#title').textContent = state.week ? weekLabel(w) :
-    (state.user?.id && !state.user.admin ? 'Gare da coprire e mie prenotazioni' : 'Gare casalinghe da coprire');
-  $('#title').classList.toggle('sr-only', !!state.week);
-  let rows = games.filter((g) => weekOf(g.date) === w);
-  if (!state.week)
-    rows = rows.filter(
-      (g) =>
-        g.is_home &&
-        (roleState(g, 'referee') === 'missing' || roleState(g, 'scorer') === 'missing' || myBooking(g)),
+  $('#title').textContent = selectedTeam
+    ? 'Tutte le gare · ' + selectedTeam.name
+    : state.week ? weekLabel(w)
+      : (state.user?.id && !state.user.admin ? 'Gare da coprire e mie prenotazioni' : 'Gare casalinghe da coprire');
+  $('#title').classList.toggle('sr-only', !selectedTeamId && !state.week);
+  let rows;
+  let fullWeek;
+  if (selectedTeam) {
+    rows = visibleGames.filter((g) => String(g.team_id) === selectedTeamId);
+    rows.sort((a, b) =>
+      (a.date || '9999-99-99').localeCompare(b.date || '9999-99-99') ||
+      (a.time || '99:99').localeCompare(b.time || '99:99') ||
+      String(a.game_number || '').localeCompare(String(b.game_number || '')),
     );
-  rows.sort((a, b) =>
-    (a.date + a.time + a.game_number).localeCompare(b.date + b.time + b.game_number),
-  );
-  const fullWeek = games.filter((g) => weekOf(g.date) === w);
+    fullWeek = rows;
+  } else {
+    rows = games.filter((g) => weekOf(g.date) === w);
+    if (!state.week)
+      rows = rows.filter(
+        (g) =>
+          g.is_home &&
+          (roleState(g, 'referee') === 'missing' || roleState(g, 'scorer') === 'missing' || myBooking(g)),
+      );
+    rows.sort((a, b) =>
+      (a.date + a.time + a.game_number).localeCompare(b.date + b.time + b.game_number),
+    );
+    fullWeek = games.filter((g) => weekOf(g.date) === w);
+  }
   const allMiss = (r) =>
     fullWeek.reduce(
       (s, g) => s + missingSeats(g, r),
@@ -304,22 +345,47 @@ function render() {
       (s, g) => s + missingSeats(g, r),
       0,
     );
-  $('#summary').textContent =
-    `${rows.length} gare · da coprire: ARB ${miss('referee')} · REF ${miss('scorer')}`;
-  $('#games').innerHTML =
-    rows.map((g, i) => rowHTML(g, i > 0 && rows[i - 1].date !== g.date)).join('') ||
-    '<p class="notice">Nessuna gara da mostrare. Scegli una settimana per consultare tutte le partite.</p>';
+  $('#summary').textContent = selectedTeam
+    ? `${rows.length} gare della squadra · da coprire: ARB ${miss('referee')} · REF ${miss('scorer')}`
+    : `${rows.length} gare · da coprire: ARB ${miss('referee')} · REF ${miss('scorer')}`;
+  if (selectedTeam) {
+    const dated = rows.filter((g) => g.date);
+    const undated = rows.filter((g) => !g.date);
+    let lastWeek = null;
+    const parts = [];
+    for (const [i, game] of dated.entries()) {
+      const week = weekOf(game.date);
+      if (week !== lastWeek) {
+        parts.push(`<h3 class="team-week-heading">${esc(weekLabel(week))}</h3>`);
+        lastWeek = week;
+      }
+      parts.push(rowHTML(game, i > 0 && dated[i - 1].date !== game.date));
+    }
+    if (undated.length) {
+      parts.push('<h3 class="team-week-heading">Gare senza data</h3>');
+      parts.push(undated.map((g) => rowHTML(g)).join(''));
+    }
+    $('#games').innerHTML = parts.join('') ||
+      '<p class="notice">Nessuna gara registrata per questa squadra.</p>';
+  } else {
+    $('#games').innerHTML =
+      rows.map((g, i) => rowHTML(g, i > 0 && rows[i - 1].date !== g.date)).join('') ||
+      '<p class="notice">Nessuna gara da mostrare. Scegli una settimana per consultare tutte le partite.</p>';
+  }
   $('#admin').hidden = !state.user?.admin;
   if (state.user?.admin) renderAdmin();
 }
 function rowHTML(g, newDay = false) {
   const t = state.teams.find((t) => t.id === g.team_id) || {},
-    cat = (g.category.match(/\bU\s*\d+/i)?.[0].replace(/\s/g, '') || g.category).replace(/DIVISIONE/i, 'DIV.'),
+    cat = ((g.category || t.category || '').match(/\bU\s*\d+/i)?.[0].replace(/\s/g, '') || g.category || t.category || '').replace(/DIVISIONE/i, 'DIV.'),
     longCat = cat.length > 5,
-    weekday = new Intl.DateTimeFormat('it-IT', { weekday: 'short', timeZone: 'UTC' }).format(
+    hasDate = !!g.date,
+    weekday = hasDate ? new Intl.DateTimeFormat('it-IT', { weekday: 'short', timeZone: 'UTC' }).format(
       new Date(g.date + 'T12:00:00Z'),
-    ),
-    day = weekday.charAt(0).toUpperCase() + weekday.slice(1),
+    ) : '',
+    day = weekday ? weekday.charAt(0).toUpperCase() + weekday.slice(1) : '',
+    dateLabel = hasDate ? day + ' ' + shortDate(g.date) : 'Data da definire',
+    timeLabel = g.time || 'Orario da definire',
     score = g.played ? `<span class="score">${esc(g.home_sets + '–' + g.away_sets)}</span>` : '',
     who = [['referee', 'Arb'], ['scorer', 'Ref']]
       .filter(([r]) => names(g, r))
@@ -332,7 +398,7 @@ function rowHTML(g, newDay = false) {
     seats = g.is_home
       ? `<span class="seats">${mark('referee', 'Arb')}${mark('scorer', 'Ref')}</span>`
       : '<span class="seats"><span class="tag-away">Trasferta</span></span>';
-  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}${booked ? ' my-booking' : staffColor}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(day)} ${shortDate(g.date)}</b><em>${esc(g.time)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
+  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}${booked ? ' my-booking' : staffColor}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(dateLabel)}</b><em>${esc(timeLabel)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
 }
 function modal(title, html) {
   $('#dialog-title').textContent = title;
@@ -939,7 +1005,14 @@ document.addEventListener('submit', async (e) => {
   }
 });
 document.addEventListener('change', (e) => {
+  if (e.target.id === 'team-select') {
+    selectedTeamId = e.target.value || '';
+    state.week = null;
+    render();
+    return;
+  }
   if (e.target.id !== 'week-select') return;
+  selectedTeamId = '';
   state.week = e.target.value || null;
   render();
 });
@@ -953,9 +1026,11 @@ document.addEventListener('click', async (e) => {
       $('#dialog').close();
       currentGame = null;
     } else if (b.id === 'home') {
+      selectedTeamId = '';
       state.week = null;
       render();
     } else if (b.dataset.week) {
+      selectedTeamId = '';
       state.week = b.dataset.week;
       render();
     } else if (b.id === 'access') {
