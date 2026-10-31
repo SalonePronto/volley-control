@@ -376,7 +376,7 @@ function render() {
   $('#admin').hidden = !state.user?.admin;
   if (state.user?.admin) renderAdmin();
 }
-function downloadTeamCalendarPdf() {
+async function downloadTeamCalendarPdf() {
   const team = state.teams.find((t) => String(t.id) === selectedTeamId);
   if (!team) return;
   const games = state.games
@@ -535,12 +535,33 @@ function downloadTeamCalendarPdf() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   const slug = String(team.name || 'squadra').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-|-$/g, '') || 'squadra';
+  const filename = 'calendario-' + slug + '.pdf';
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const file = new File([blob], filename, { type: 'application/pdf' });
+  if (isIOS && navigator.share && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'Calendario completo · ' + team.name });
+    } catch (error) {
+      if (error.name !== 'AbortError') notice('Non è stato possibile aprire il PDF. Riprova.');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    return;
+  }
+  if (isIOS) {
+    const opened = window.open(url, '_blank');
+    if (opened) {
+      setTimeout(() => URL.revokeObjectURL(url), 300000);
+      return;
+    }
+  }
   anchor.href = url;
-  anchor.download = 'calendario-' + slug + '.pdf';
+  anchor.download = filename;
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function rowHTML(g, newDay = false) {
@@ -1194,7 +1215,7 @@ document.addEventListener('click', async (e) => {
       $('#dialog').close();
       currentGame = null;
     } else if (b.id === 'download-team-pdf') {
-      downloadTeamCalendarPdf();
+      await downloadTeamCalendarPdf();
     } else if (b.id === 'home') {
       selectedTeamId = '';
       state.week = null;
