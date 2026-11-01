@@ -603,3 +603,101 @@ html, body {
 .hero-in .top{grid-column:1/-1;min-width:0}
 #summary{margin-bottom:5px}
 }
+
+
+/* VOLLEY CONTROL - barra Pubblico compatta e adattiva. Solo presentazione. */
+.public-tools,
+.public-tools-line,
+.public-status,
+.public-fixture,
+.public-place-line {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+.public-tools {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 4px;
+  margin: 4px 0 6px;
+}
+.public-tools-line {
+  display: flex;
+  gap: 5px;
+  width: 100%;
+  align-items: center;
+}
+.public-tools-line label {
+  flex: 1 1 0%;
+  width: 0;
+  min-width: 0;
+  padding: 3px 6px;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.public-tools-line select {
+  flex: 1 1 0%;
+  width: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 5px;
+  min-height: 34px;
+  height: 34px;
+}
+.public-tools-line #public-manage {
+  flex: 0 0 36px;
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+.public-status {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+.public-status button {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  height: 34px;
+  padding: 3px 2px;
+  font-size: 12px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.public-place-line span { min-width: 0; }
+.public-maps {
+  flex: 0 0 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  background: #e9f0fa;
+  color: #185b9e;
+  text-decoration: none;
+}
+.public-maps svg { display: block; flex-shrink: 0; }
+.public-maps:hover,
+.public-maps:focus-visible { background: #d9e8fb; }
+@media (max-width:700px) {
+  html, body { width: 100%; max-width: 100%; overflow-x: clip; }
+  main, #app, .layout, .side, #games { min-width: 0; max-width: 100%; }
+  .public-tools { min-width: 0; width: 100%; }
+  .public-tools-line label { font-size: 12px; }
+  .public-tools-line select { font-size: 16px !important; }
+  .public-status button { font-size: clamp(11px, 3.25vw, 13px); }
+  .public-fixture { max-width: 100%; overflow-wrap: anywhere; }
+  .public-fixture-top { flex-wrap: wrap; }
+  .public-fixture-names { overflow-wrap: anywhere; }
+}

@@ -75,7 +75,10 @@ function publicGameCard(g) {
   const destination = [venue,address].filter(Boolean).join(' ');
   const map = destination ?
     '<a class="public-maps" href="https://www.google.com/maps/search/?api=1&query=' +
-      encodeURIComponent(destination) + '" target="_blank" rel="noopener noreferrer">📍 Google Maps</a>' : '';
+      encodeURIComponent(destination) +
+      '" target="_blank" rel="noopener noreferrer" aria-label="Apri in Google Maps" title="Apri in Google Maps">' +
+      '<svg aria-hidden="true" viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></a>' : '';
   const sets = Array.isArray(g.sets) ? g.sets.map((s,i) =>
     ((s.number || i+1) === 6 ? 'Golden' : (i+1) + '°') + ': ' + s.home + '–' + s.away).join(' · ') : '';
   return '<article class="public-fixture">' +
