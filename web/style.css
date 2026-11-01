@@ -560,3 +560,46 @@ html, body {
 
 .team-pdf-button { width: 100%; margin-top: 8px; background: var(--blue); color: #fff; box-shadow: var(--shadow); }
 .team-pdf-button:hover { background: #244ed0; }
+
+
+/* Vista Pubblico e interfaccia compatta: spazio alle partite */
+.view-switch { display:inline-flex;align-items:center;margin-left:auto;flex:0 0 auto; }
+.view-switch select { appearance:auto;max-width:190px;min-height:34px;padding:5px 9px;border:1px solid #7388a7;border-radius:9px;background:#fff;color:#14243f;font-weight:700;font-size:12px; }
+.team-filter { flex-direction:row;align-items:center;gap:8px;padding:5px 9px;min-height:43px;border-radius:11px;margin-top:5px; }
+.team-filter span {font-size:11px;white-space:nowrap;font-weight:600}
+.team-filter select {min-height:34px;padding:4px 7px;flex:1;min-width:0;font-size:12px;}
+.public-tools { display:grid;gap:6px;margin:5px 0 8px }
+.public-tools-line {display:flex;gap:6px;align-items:center}
+.public-tools-line label {display:flex;align-items:center;gap:6px;flex:1;min-width:0;font-size:11px;background:white;border-radius:9px;padding:4px 8px;}
+.public-tools-line select {flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:5px;font:inherit;font-size:12px;min-height:35px;background:white;}
+.public-tools-line button{min-height:37px;min-width:38px;padding:0}
+.public-status{display:flex;gap:5px}
+.public-status button{flex:1;padding:5px 4px;min-height:36px;font-size:12px;background:#fff}
+.public-status button.active{background:#14243f;color:#fff}
+.public-setup{border-radius:12px;background:#fff;padding:16px;box-shadow:var(--shadow)}
+.public-setup h2{margin:0 0 6px}
+.public-setup p{font-size:13px;color:var(--muted)}
+.public-team-option{display:flex;align-items:center;gap:10px;margin:6px 0;border:1px solid var(--line);padding:11px;border-radius:10px;cursor:pointer}
+.public-team-option input{width:18px;height:18px}
+.public-fixture{background:#fff;border:1px solid var(--line);border-radius:13px;padding:12px;margin:7px 0;box-shadow:var(--shadow);}
+.public-fixture-top,.public-place-line{display:flex;justify-content:space-between;align-items:center;gap:9px;font-size:12px}
+.public-fixture-category{background:var(--ocra);color:var(--ocra-ink);padding:5px 7px;border-radius:7px;font-weight:700}
+.public-fixture-names{font-size:15px;font-weight:750;margin:9px 0 6px}
+.public-score{font-weight:700;margin:7px 0;color:#14243f}
+.public-score small{display:block;font-weight:500;color:var(--muted);margin-top:3px}
+.public-place-line{padding-top:8px;border-top:1px solid var(--line);align-items:flex-start}
+.public-place-line span{flex:1;overflow-wrap:anywhere;color:var(--muted)}
+.public-maps{white-space:nowrap;font-weight:700;color:#185b9e;font-size:12px}
+.public-detail{margin-top:8px;min-height:32px;padding:4px 12px;font-size:12px;background:#edf1f9}
+.signup-type{display:grid;gap:8px}
+.signup-type label{display:grid;grid-template-columns:20px 1fr;column-gap:10px;border:1px solid var(--line);padding:12px;border-radius:10px}
+.signup-type label small{grid-column:2;color:var(--muted);font-size:11px}
+.signup-type input{grid-row:span 2;align-self:center}
+.sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:700px){
+.hero-in{display:grid;grid-template-columns:1fr auto;gap:5px 8px}
+.hero-in .brand{grid-column:1;min-width:0}
+.hero-in .view-switch{grid-column:2;margin-left:0}
+.hero-in .top{grid-column:1/-1;min-width:0}
+#summary{margin-bottom:5px}
+}

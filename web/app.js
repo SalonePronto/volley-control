@@ -16,6 +16,135 @@ let state = {
   },
   currentGame = null;
 let selectedTeamId = '';
+
+/* Vista Pubblico in prova: nessuna modifica ai ruoli o alle prenotazioni.
+   Le preferenze sono salvate per account su questo dispositivo. */
+let viewMode = 'work', viewerOwner = null, favoriteTeams = [], publicTeamId = '',
+    publicStatus = 'week';
+const hasOperationalRole = (u) =>
+  !!(u?.wants_referee || u?.wants_scorer || u?.wants_manager || u?.wants_coach);
+const isPublicMode = () => viewMode === 'public' && !state.user?.admin;
+function viewStorageKey() { return 'vc-view-prefs-v1:' + (state.user?.id || 'visitor'); }
+function refreshViewOwner() {
+  const id = String(state.user?.id || 'visitor');
+  if (viewerOwner === id) return;
+  viewerOwner = id;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(viewStorageKey()) || '{}') || {}; } catch { saved = {}; }
+  favoriteTeams = Array.isArray(saved.teams) ? [...new Set(saved.teams.filter(x => typeof x === 'string'))] : [];
+  publicTeamId = typeof saved.team === 'string' ? saved.team : '';
+  publicStatus = ['week','future','past'].includes(saved.status) ? saved.status : 'week';
+  viewMode = state.user?.id && !hasOperationalRole(state.user) && !state.user.admin
+    ? 'public' : saved.mode === 'public' ? 'public' : 'work';
+  if (state.user?.admin) viewMode = 'work';
+}
+function storeViewPrefs() {
+  try { localStorage.setItem(viewStorageKey(), JSON.stringify({
+    mode: viewMode, teams: favoriteTeams, team: publicTeamId, status: publicStatus
+  })); } catch { /* Modalità di navigazione privata: nessun dato permanente. */ }
+}
+function chooseView(mode) {
+  if (mode !== 'work' && mode !== 'public') return;
+  if (state.user?.admin || (mode === 'work' && state.user?.id && !hasOperationalRole(state.user))) return;
+  viewMode = mode;
+  selectedTeamId = '';
+  state.week = null;
+  storeViewPrefs();
+  render();
+}
+const publicTeamLabel = (t) => [t.category || '', t.name || '', t.source || ''].filter(Boolean).join(' · ');
+function publicAvailableTeams() {
+  const inGames = new Set(state.games.filter(g => !g.hidden).map(g => String(g.team_id)));
+  return state.teams.filter(t => inGames.has(String(t.id)))
+    .sort((a,b)=>publicTeamLabel(a).localeCompare(publicTeamLabel(b),'it'));
+}
+function publicTeamChooser() {
+  const options = publicAvailableTeams();
+  return '<section class="public-setup"><h2>Scegli le squadre da seguire</h2>' +
+    '<p>Seleziona tutti i campionati che ti interessano. Potrai cambiarli quando vuoi.</p>' +
+    '<form data-form="public-teams">' +
+    options.map(t => '<label class="public-team-option"><input type="checkbox" name="favorite" value="' +
+      esc(String(t.id)) + '" ' + (favoriteTeams.includes(String(t.id)) ? 'checked' : '') +
+      '><span>' + esc(publicTeamLabel(t)) + '</span></label>').join('') +
+    '<button type="submit" class="primary">Salva le mie squadre</button></form></section>';
+}
+const publicIsPlayed = g => !!g.played; 
+function publicGameCard(g) {
+  const t = state.teams.find(t => String(t.id) === String(g.team_id)) || {};
+  const venue = String(g.venue || '').trim(), address = String(g.address || '').trim();
+  const destination = [venue,address].filter(Boolean).join(' ');
+  const map = destination ?
+    '<a class="public-maps" href="https://www.google.com/maps/search/?api=1&query=' +
+      encodeURIComponent(destination) + '" target="_blank" rel="noopener noreferrer">📍 Google Maps</a>' : '';
+  const sets = Array.isArray(g.sets) ? g.sets.map((s,i) =>
+    ((s.number || i+1) === 6 ? 'Golden' : (i+1) + '°') + ': ' + s.home + '–' + s.away).join(' · ') : '';
+  return '<article class="public-fixture">' +
+    '<div class="public-fixture-top"><span class="public-fixture-category">' +
+      esc(g.category || t.category || '') + ' · ' + esc(g.source || '') +
+      '</span><strong>' + esc(g.date ? shortDate(g.date) : 'Data da definire') + ' · ' +
+      esc(g.time || 'Orario da definire') + '</strong></div>' +
+    '<div class="public-fixture-names">' + esc(g.home_team) + ' – ' + esc(g.away_team) + '</div>' +
+    (g.played ? '<div class="public-score">Risultato: ' +
+      esc(String(g.home_sets ?? '–')+' – '+String(g.away_sets ?? '–')) +
+      (sets ? '<small>' + esc(sets) + '</small>' : '') + '</div>' : '') +
+    '<div class="public-place-line"><span>' +
+      esc([venue,address].filter(Boolean).join(' · ') || 'Palestra e indirizzo non disponibili') +
+      '</span>' + map + '</div>' +
+    '<button type="button" data-open="' + esc(g.game_key) +
+      '" class="public-detail">Vedi scheda partita</button></article>';
+}
+function renderPublic(games, teamOptions) {
+  const valid = new Set(teamOptions.map(t => String(t.id)));
+  favoriteTeams = favoriteTeams.filter(id => valid.has(id));
+  if (publicTeamId && !favoriteTeams.includes(publicTeamId)) publicTeamId = '';
+  $('#admin').hidden = true;
+  $('.team-filter').hidden = true;
+  $('#download-team-pdf').hidden = true;
+  $('#public-tools').hidden = !favoriteTeams.length;
+  $('#weeks').hidden = !favoriteTeams.length || publicStatus !== 'week';
+  $('#metrics').hidden = true;
+  $('.legend').hidden = true;
+  $('#title').classList.remove('sr-only');
+  if (!favoriteTeams.length) {
+    $('#title').textContent = 'Le mie squadre';
+    $('#summary').textContent = 'Scegli i campionati che desideri seguire.';
+    $('#games').innerHTML = publicTeamChooser();
+    return;
+  }
+  $('#public-team').innerHTML = '<option value="">Tutte le mie squadre</option>' +
+    teamOptions.filter(t => favoriteTeams.includes(String(t.id)))
+      .map(t => '<option value="' + esc(String(t.id)) + '" ' +
+        (publicTeamId === String(t.id) ? 'selected' : '') + '>' + esc(publicTeamLabel(t)) + '</option>').join('');
+  document.querySelectorAll('[data-public-status]').forEach(b => {
+    b.classList.toggle('active', b.dataset.publicStatus === publicStatus);
+    b.setAttribute('aria-pressed', String(b.dataset.publicStatus === publicStatus));
+  });
+  const teamIds = new Set(publicTeamId ? [publicTeamId] : favoriteTeams);
+  const currentWeek = state.week || weekOf(isoNow());
+  const today = isoNow();
+  let rows = games.filter(g => teamIds.has(String(g.team_id)));
+  if (publicStatus === 'week') rows = rows.filter(g => g.date && weekOf(g.date) === currentWeek);
+  else if (publicStatus === 'future') rows = rows.filter(g => !g.played && (!g.date || g.date >= today));
+  else rows = rows.filter(g => publicIsPlayed(g));
+  rows.sort((a,b) => String(a.date || '9999-99-99').localeCompare(String(b.date || '9999-99-99')) ||
+    String(a.time || '').localeCompare(String(b.time || '')));
+  if (publicStatus === 'past') rows.reverse();
+  $('#title').textContent = publicStatus === 'week' ? 'Le mie squadre · ' +
+    weekLabel(currentWeek).replace('GARE ','') : publicStatus === 'future' ? 'Partite da giocare' : 'Partite giocate';
+  $('#summary').textContent = rows.length + ' partite · ' + teamIds.size + ' squadre seguite';
+  let lastWeek = '';
+  const parts = [];
+  for (const g of rows) {
+    const w = g.date ? weekOf(g.date) : 'undated';
+    if (publicStatus !== 'week' && w !== lastWeek) {
+      parts.push('<h3 class="team-week-heading">' +
+        esc(w === 'undated' ? 'Data da definire' : weekLabel(w)) + '</h3>');
+      lastWeek = w;
+    }
+    parts.push(publicGameCard(g));
+  }
+  $('#games').innerHTML = parts.join('') || '<p class="notice">Nessuna gara in questa selezione.</p>';
+}
 const ROLES = { referee: 'Arbitro', scorer: 'Refertista' };
 // NOVAVISION: gestione manuale definitiva, esclusa dai collegamenti automatici.
 const manualCalendarOnly = (team) => /\bNOVAVISION\b/i.test(team.name || '');
@@ -238,12 +367,20 @@ window.addEventListener('focus', () => {
 async function load() {
   const [me, c] = await Promise.all([api('me'), api('calendar')]);
   state = { ...state, ...me, ...c };
+  refreshViewOwner();
   if (state.user && !state.user.admin) rememberRegisteredOnThisDevice();
   if (state.user?.admin) state.admin = await api('admin/state');
   else state.admin = null;
   render();
 }
 function render() {
+  refreshViewOwner();
+  const viewerOnly = !!state.user?.id && !hasOperationalRole(state.user) && !state.user.admin;
+  $('#view-switch').hidden = !!state.user?.admin;
+  $('#view-mode').innerHTML = viewerOnly
+    ? '<option value="public">Le mie squadre</option>'
+    : '<option value="work">I miei incarichi</option><option value="public">Le mie squadre</option>';
+  $('#view-mode').value = viewMode;
   const pending = state.games.filter((g) => !g.date || !g.time);
   $('#patty').textContent = state.user?.admin
     ? (state.user.id ? '🔓 Torna all’area personale' : '🔓 Esci da PATTY')
@@ -278,6 +415,11 @@ function render() {
     .sort((a, b) => teamLabel(a).localeCompare(teamLabel(b), 'it'));
   if (selectedTeamId && !teamOptions.some((team) => String(team.id) === selectedTeamId))
     selectedTeamId = '';
+  $('.team-filter').hidden = isPublicMode();
+  $('#public-tools').hidden = !isPublicMode();
+  $('#metrics').hidden = isPublicMode();
+  $('.legend').hidden = isPublicMode();
+  if (isPublicMode()) selectedTeamId = '';
   $('#team-select').innerHTML =
     '<option value="">Tutte le squadre · vista attuale</option>' +
     teamOptions.map((team) =>
@@ -298,6 +440,7 @@ function render() {
     `</select></label>` +
     `<button class="step" ${nextWeek ? `data-week="${nextWeek}"` : 'disabled'} aria-label="Settimana successiva">›</button>`;
   const selectedTeam = teamOptions.find((team) => String(team.id) === selectedTeamId);
+  if (isPublicMode()) { renderPublic(visibleGames, teamOptions); return; }
   const w = state.week || weekOf(isoNow());
   $('#title').textContent = selectedTeam
     ? 'Tutte le gare · ' + selectedTeam.name
@@ -635,8 +778,10 @@ function access(admin = false, view = '') {
     modal('Prima registrazione',
       `<p class="notice">Inserisci nome, cognome e un codice personale di 4 caratteri, con lettere o numeri. Conserva il codice per i prossimi accessi.</p>
       <form data-form="register">${names}${codeField('Codice di 4 caratteri', 'password')}
-      <p class="notice">Seleziona almeno un ruolo. Puoi sceglierne più di uno: basta un solo account.</p>
-      <div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}${check('Dirigente', 'wants_manager')}${check('Allenatore', 'wants_coach')}</div>
+      <p class="notice">Come vuoi usare VOLLEY CONTROL?</p>
+      <div class="signup-type"><label><input type="radio" name="account_type" value="public" checked> <b>Seguo le squadre</b><small>Genitori, familiari e tifosi. Solo consultazione.</small></label>
+      <label><input type="radio" name="account_type" value="staff"> <b>Collaboro con la società</b><small>Arbitro, refertista, allenatore o dirigente.</small></label></div>
+      <div id="register-roles" hidden><p class="notice">Seleziona uno o più incarichi:</p><div class="checks">${check('Arbitro', 'wants_referee')}${check('Refertista', 'wants_scorer')}${check('Dirigente', 'wants_manager')}${check('Allenatore', 'wants_coach')}</div></div>
       <div class="actions"><button class="primary">Registrati ed entra</button></div></form>
       <p class="access-switch">Sei già registrato? <button type="button" data-access-view="login">Accedi</button></p>`);
     return;
@@ -696,8 +841,9 @@ async function showGame(key) {
   if (!g) return;
   currentGame = key;
   const t = state.teams.find((x) => x.id === g.team_id) || {};
+  const publicReadOnly = isPublicMode();
   let seats = '';
-  if (g.is_home) {
+  if (g.is_home && !publicReadOnly) {
     for (const [r, label] of Object.entries(ROLES))
       for (let slot = 1; slot <= Math.max(required(g, r), federal(g, r) ? 1 : 0); slot++) {
         const a = assigned(g).find((a) => a.role === r && a.slot === slot);
@@ -746,7 +892,7 @@ async function showGame(key) {
         ${g.staff_override ? `<button type="button" class="staff-reset" data-staff-reset data-game="${esc(key)}">Ripristina lo staff della squadra</button>` : ''}
       </form></div>`
     : `<div class="staff"><h3>Staff squadra</h3>${staffLine('Allenatore', staff.coach1 || 'Da inserire')}${staffLine('Secondo allenatore', staff.coach2)}${managers.length ? managers.map((m, i) => staffLine(i ? '' : managers.length > 1 ? 'Dirigenti' : 'Dirigente', m)).join('') : staffLine('Dirigenti', 'Da inserire')}</div>`;
-  let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="strip"><span>Gara <b>${esc(g.game_number || 'n. non presente')}</b></span><span class="pill ${g.is_home ? 'home' : 'away'}">${g.is_home ? 'Casa' : 'Trasferta'}</span><span>${esc(g.source)}</span></div>${placeBlock}${staffBlock}${resultCard(g)}${g.notes ? card('Note', g.notes) : ''}`;
+  let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${publicReadOnly ? '' : g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="strip"><span>Gara <b>${esc(g.game_number || 'n. non presente')}</b></span><span class="pill ${g.is_home ? 'home' : 'away'}">${g.is_home ? 'Casa' : 'Trasferta'}</span><span>${esc(g.source)}</span></div>${placeBlock}${staffBlock}${resultCard(g)}${g.notes ? card('Note', g.notes) : ''}`;
   if (state.user?.admin) {
     // Ogni correzione di una singola partita avviene nella sua scheda.
     // Una gara incompleta deve ricevere data e ora insieme, senza duplicare moduli altrove.
@@ -993,19 +1139,35 @@ async function submit(f) {
       $('#dialog').close();
       await load();
       return;
-    case 'register':
+    case 'register': {
+      const publicOnly = b.account_type === 'public';
+      if (!publicOnly && ![b.wants_referee,b.wants_scorer,b.wants_manager,b.wants_coach].some(Boolean))
+        throw new Error('Scegli almeno un incarico.');
       await api('auth/register', {
         ...b,
-        wants_referee: !!b.wants_referee,
-        wants_scorer: !!b.wants_scorer,
-        wants_manager: !!b.wants_manager,
-        wants_coach: !!b.wants_coach,
+        account_type: publicOnly ? 'public' : 'staff',
+        wants_referee: !publicOnly && !!b.wants_referee,
+        wants_scorer: !publicOnly && !!b.wants_scorer,
+        wants_manager: !publicOnly && !!b.wants_manager,
+        wants_coach: !publicOnly && !!b.wants_coach,
       });
       rememberRegisteredOnThisDevice();
       $('#dialog').close();
       await load();
       notice('Registrazione completata. Sei già connesso.');
       return;
+    }
+    case 'public-teams': {
+      const choices = [...f.querySelectorAll('input[name="favorite"]:checked')].map(el=>el.value);
+      if (!choices.length) throw new Error('Scegli almeno una squadra.');
+      const ids = new Set(publicAvailableTeams().map(t=>String(t.id)));
+      favoriteTeams = [...new Set(choices)].filter(x => ids.has(x));
+      publicTeamId = '';
+      storeViewPrefs();
+      if ($('#dialog').open) $('#dialog').close();
+      render();
+      return;
+    }
     case 'person-roles': {
       const payload = {
         id: f.dataset.personId,
@@ -1194,6 +1356,12 @@ document.addEventListener('submit', async (e) => {
   }
 });
 document.addEventListener('change', (e) => {
+  if (e.target.name === 'account_type') {
+    const r = $('#register-roles'); if (r) r.hidden = e.target.value !== 'staff';
+    return;
+  }
+  if (e.target.id === 'view-mode') { chooseView(e.target.value); return; }
+  if (e.target.id === 'public-team') { publicTeamId = e.target.value; storeViewPrefs(); render(); return; }
   if (e.target.id === 'team-select') {
     selectedTeamId = e.target.value || '';
     state.week = null;
@@ -1209,7 +1377,13 @@ document.addEventListener('click', async (e) => {
   const b = e.target.closest('button');
   if (!b) return;
   try {
-    if (b.dataset.accessView) {
+    if (b.id === 'public-manage') { modal('Le mie squadre · Modifica', publicTeamChooser());
+    } else if (b.dataset.publicStatus) {
+      publicStatus = b.dataset.publicStatus;
+      state.week = null;
+      storeViewPrefs();
+      render();
+    } else if (b.dataset.accessView) {
       access(false, b.dataset.accessView);
     } else if (b.id === 'close-dialog') {
       $('#dialog').close();
@@ -1217,8 +1391,10 @@ document.addEventListener('click', async (e) => {
     } else if (b.id === 'download-team-pdf') {
       await downloadTeamCalendarPdf();
     } else if (b.id === 'home') {
+      if (isPublicMode()) publicStatus = 'week';
       selectedTeamId = '';
       state.week = null;
+      if (isPublicMode()) storeViewPrefs();
       render();
     } else if (b.dataset.week) {
       selectedTeamId = '';

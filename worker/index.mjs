@@ -873,8 +873,13 @@ async function route(req, env) {
     await throttle(env, req, 'register', 5);
     const b = await body(req);
     const first = clean(b.first_name), last = clean(b.last_name);
-    if (!first || !last || first.length > 120 || last.length > 120 || (!b.wants_referee && !b.wants_scorer && !b.wants_manager && !b.wants_coach))
-      fail('Inserisci nome, cognome e almeno una figura.');
+    if (!first || !last || first.length > 120 || last.length > 120)
+      fail('Inserisci nome e cognome.');
+    const roles = [b.wants_referee,b.wants_scorer,b.wants_manager,b.wants_coach];
+    const publicOnly = b.account_type === 'public';
+    if (!['public','staff'].includes(b.account_type) ||
+        (publicOnly && roles.some(Boolean)) || (!publicOnly && !roles.some(Boolean)))
+      fail('Scegli Seguo le squadre oppure almeno un incarico.', 400);
     if (!validCode(b.password)) fail('Codice di 4 caratteri, solo lettere o numeri.');
     const key = await identityKey(first, last);
     const pwd = await passwordHash(b.password, env.PASSWORD_PEPPER);
