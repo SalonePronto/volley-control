@@ -701,3 +701,22 @@ html, body {
   .public-fixture-top { flex-wrap: wrap; }
   .public-fixture-names { overflow-wrap: anywhere; }
 }
+
+/* Quarta scelta esplicita: tutte le gare del calendario, senza occupare una seconda riga. */
+.public-status {
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr) minmax(0, .85fr) minmax(90px, 1.45fr);
+}
+.public-status button {
+  height: 42px;
+  min-height: 42px;
+  white-space: normal;
+  overflow-wrap: normal;
+  line-height: 1.1;
+}
+@media (max-width: 700px) {
+  .public-status {
+    grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr) minmax(0, .85fr) minmax(90px, 1.45fr);
+    gap: 4px;
+  }
+  .public-status button { font-size: clamp(10px, 2.9vw, 12px); padding: 3px 2px; }
+}

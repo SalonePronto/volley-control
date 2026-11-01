@@ -33,7 +33,7 @@ function refreshViewOwner() {
   try { saved = JSON.parse(localStorage.getItem(viewStorageKey()) || '{}') || {}; } catch { saved = {}; }
   favoriteTeams = Array.isArray(saved.teams) ? [...new Set(saved.teams.filter(x => typeof x === 'string'))] : [];
   publicTeamId = typeof saved.team === 'string' ? saved.team : '';
-  publicStatus = ['week','future','past'].includes(saved.status) ? saved.status : 'week';
+  publicStatus = ['week','future','past','all'].includes(saved.status) ? saved.status : 'week';
   viewMode = state.user?.id && !hasOperationalRole(state.user) && !state.user.admin
     ? 'public' : saved.mode === 'public' ? 'public' : 'work';
   if (state.user?.admin) viewMode = 'work';
@@ -128,12 +128,13 @@ function renderPublic(games, teamOptions) {
   let rows = games.filter(g => teamIds.has(String(g.team_id)));
   if (publicStatus === 'week') rows = rows.filter(g => g.date && weekOf(g.date) === currentWeek);
   else if (publicStatus === 'future') rows = rows.filter(g => !g.played && (!g.date || g.date >= today));
-  else rows = rows.filter(g => publicIsPlayed(g));
+  else if (publicStatus === 'past') rows = rows.filter(g => publicIsPlayed(g));
   rows.sort((a,b) => String(a.date || '9999-99-99').localeCompare(String(b.date || '9999-99-99')) ||
     String(a.time || '').localeCompare(String(b.time || '')));
   if (publicStatus === 'past') rows.reverse();
   $('#title').textContent = publicStatus === 'week' ? 'Le mie squadre · ' +
-    weekLabel(currentWeek).replace('GARE ','') : publicStatus === 'future' ? 'Partite da giocare' : 'Partite giocate';
+    weekLabel(currentWeek).replace('GARE ','') : publicStatus === 'future' ? 'Partite da giocare' :
+      publicStatus === 'past' ? 'Partite giocate' : 'Calendario completo';
   $('#summary').textContent = rows.length + ' partite · ' + teamIds.size + ' squadre seguite';
   let lastWeek = '';
   const parts = [];
