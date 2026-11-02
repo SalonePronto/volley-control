@@ -118,8 +118,6 @@ const PERSONAL_COOKIE_SECONDS = 400 * 24 * 60 * 60;
 // PATTY: scadenza mobile, rinnovata dall'attività reale nell'app.
 const PATTY_SESSION_MS = 30 * 60 * 1000;
 const PATTY_RENEW_WINDOW_MS = 15 * 60 * 1000;
-const PATTY_SESSION_MS = 30 * 60 * 1000;
-const PATTY_RENEW_WINDOW_MS = 15 * 60 * 1000;
 const PERSONAL_SESSION_EXPIRES = 253402300799000; // fine anno 9999
 const sessionCookie = (token, seconds) =>
   `__Host-vc=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${seconds}`;
@@ -580,7 +578,7 @@ export async function syncStep(env, id) {
 
 async function calendar(db) {
   const [rows, teams, assignments] = await Promise.all([
-    all(db, 'SELECT effective_json,source_missing FROM games ORDER BY date,time'),
+    all(db, 'SELECT effective_json,source_missing,start_ts FROM games ORDER BY date,time'),
     all(db, 'SELECT * FROM teams'),
     all(
       db,
@@ -590,6 +588,7 @@ async function calendar(db) {
   return {
     games: rows.map((r) => ({
       ...JSON.parse(r.effective_json),
+      start_ts: r.start_ts,
       source_missing: !!r.source_missing,
     })),
     teams,
@@ -607,6 +606,7 @@ export const BACKUP_TABLES = [
   'audit',
   'sync_runs',
   'settings',
+  'staff_bookings',
 ];
 export async function exportBackup(db) {
   const data = {};
@@ -626,8 +626,9 @@ export async function restoreBackup(db, b) {
   );
   const q = triggerRows.map((t) => statement(db, 'DROP TRIGGER ' + t.name));
   for (const t of BACKUP_TABLES) {
-    if (!Array.isArray(b.data[t])) fail('Backup incompleto.');
-    for (const row of b.data[t]) {
+    const rows = t === 'staff_bookings' && b.data[t] === undefined ? [] : b.data[t];
+    if (!Array.isArray(rows)) fail('Backup incompleto.');
+    for (const row of rows) {
       const keys = Object.keys(row);
       if (keys.some((k) => !/^[a-z_][a-z_0-9]*$/.test(k))) fail('Colonne non valide.');
       q.push(
@@ -866,6 +867,12 @@ async function route(req, env) {
   if (path === '/api/calendar' && req.method === 'GET') {
     const data = await calendar(env.DB);
     data.games = data.games.filter((g) => !g.hidden);
+    data.staffTeamIds = [];
+    data.staffBookings = [];
+    if (s?.person_id && !s.admin) {
+      data.staffBookings = await all(env.DB, 'SELECT game_key,role FROM staff_bookings WHERE person_id=?', s.person_id);
+      data.staffTeamIds = (await all(env.DB, 'SELECT DISTINCT g.team_id FROM games g JOIN teams r ON r.id=g.team_id WHERE g.hidden=0 AND ((?=1 AND (r.coach1 LIKE ? OR r.coach2 LIKE ?)) OR (?=1 AND r.managers LIKE ?))', Number(s.wants_coach), '%' + s.first_name + ' ' + s.last_name + '%', '%' + s.first_name + ' ' + s.last_name + '%', Number(s.wants_manager), '%' + s.first_name + ' ' + s.last_name + '%')).map(x => String(x.team_id));
+    }
     return json(data);
   }
   if (path === '/api/auth/register' && req.method === 'POST') {
@@ -956,6 +963,32 @@ async function route(req, env) {
       s.token_hash, s.person_id).run();
     return json({ ok: true, admin: false });
   }
+  if (path === '/api/staff-book' && req.method === 'POST') {
+    if (!s || s.admin || !s.person_id) fail('Accedi dall’area personale.', 403);
+    const b = await body(req);
+    if (!['coach1','coach2','manager'].includes(b.role) ||
+        (b.role === 'manager' ? !s.wants_manager : !s.wants_coach)) fail('Non sei abilitato per questo ruolo staff.', 403);
+    const game = await one(env.DB, 'SELECT start_ts FROM games WHERE game_key=? AND hidden=0', b.game_key);
+    if (!game || game.start_ts <= Date.now()) fail('Presenza consentita soltanto per gare future.');
+    try {
+      await env.DB.batch([
+        statement(env.DB, "INSERT INTO staff_bookings(game_key,person_id,role,source,created_at) VALUES(?,?,?,'self',?)", b.game_key, s.person_id, b.role, at()),
+        audit(env.DB, s.person_id, 'staff_booking', b.game_key, { role:b.role, source:'self' }),
+      ]);
+    } catch (e) { fail(dbMessage(e), 409); }
+    return json({ok:true},201);
+  }
+  if (path === '/api/staff-cancel' && req.method === 'POST') {
+    if (!s || s.admin || !s.person_id) fail('Accedi dall’area personale.', 403);
+    const b = await body(req);
+    const row = await one(env.DB, 'SELECT role FROM staff_bookings WHERE game_key=? AND person_id=?', b.game_key, s.person_id);
+    if (!row) fail('Presenza non trovata.',404);
+    await env.DB.batch([
+      statement(env.DB, 'DELETE FROM staff_bookings WHERE game_key=? AND person_id=?', b.game_key, s.person_id),
+      audit(env.DB, s.person_id, 'staff_cancellation', b.game_key, { role:row.role }),
+    ]);
+    return json({ok:true});
+  }
   if (path === '/api/book' && req.method === 'POST') {
     if (!s || s.admin || !s.person_id) fail('Accedi dall’area personale.', 403);
     const b = await body(req);
@@ -1042,6 +1075,7 @@ async function route(req, env) {
   if (path === '/api/admin/state' && req.method === 'GET')
     return json({
       ...(await calendar(env.DB)),
+      staffBookings: await all(env.DB, 'SELECT b.game_key,b.person_id,b.role,b.source,b.created_at,p.first_name,p.last_name FROM staff_bookings b JOIN people p ON p.id=b.person_id ORDER BY b.game_key,b.role'),
       people: await all(
         env.DB,
         'SELECT id,first_name,last_name,wants_referee,wants_scorer,wants_manager,wants_coach,approved,can_access_patty,created_at FROM people ORDER BY last_name,first_name',
@@ -1186,6 +1220,8 @@ async function route(req, env) {
       statement(env.DB,
         'UPDATE people SET wants_referee=?,wants_scorer=?,wants_manager=?,wants_coach=? WHERE id=?',
         ...fields.map((key) => b[key] ? 1 : 0), b.id),
+      ...(!b.wants_coach ? [statement(env.DB, "DELETE FROM staff_bookings WHERE person_id=? AND role IN ('coach1','coach2')", b.id)] : []),
+      ...(!b.wants_manager ? [statement(env.DB, "DELETE FROM staff_bookings WHERE person_id=? AND role='manager'", b.id)] : []),
       audit(env.DB, actor, 'person_roles_updated', null, {
         id: b.id, name: person.first_name + ' ' + person.last_name,
         before: previous, after: updated,
@@ -1203,6 +1239,7 @@ async function route(req, env) {
     await env.DB.batch([
       statement(env.DB, 'DELETE FROM sessions WHERE person_id=?', b.id),
       statement(env.DB, 'DELETE FROM assignments WHERE person_id=?', b.id),
+      statement(env.DB, 'DELETE FROM staff_bookings WHERE person_id=?', b.id),
       statement(env.DB, 'DELETE FROM team_fixed WHERE person_id=?', b.id),
       statement(env.DB, 'DELETE FROM cancellation_guards WHERE person_id=?', b.id),
       statement(env.DB, 'DELETE FROM people WHERE id=?', b.id),
@@ -1295,6 +1332,27 @@ async function route(req, env) {
       created: applied.created, conflicts: applied.conflicts?.length || 0,
     }).run();
     return json({ ok: true, ...applied });
+  }
+  if (path === '/api/admin/staff-booking' && req.method === 'POST') {
+    const b = await body(req);
+    if (!['create','remove'].includes(b.action) || typeof b.game_key !== 'string') fail('Richiesta presenze non valida.');
+    if (b.action === 'remove') {
+      if (typeof b.person_id !== 'string') fail('Persona non valida.');
+      await env.DB.batch([
+        statement(env.DB, 'DELETE FROM staff_bookings WHERE game_key=? AND person_id=?', b.game_key, b.person_id),
+        audit(env.DB, actor, 'staff_booking_removed_by_patty', b.game_key, {person_id:b.person_id}),
+      ]);
+      return json({ok:true});
+    }
+    if (typeof b.person_id !== 'string' || !['coach1','coach2','manager'].includes(b.role)) fail('Persona o ruolo staff non valido.');
+    const p = await one(env.DB, 'SELECT wants_coach,wants_manager FROM people WHERE id=? AND approved=1', b.person_id);
+    const g = await one(env.DB, 'SELECT start_ts FROM games WHERE game_key=? AND hidden=0', b.game_key);
+    if (!p || !g || g.start_ts <= Date.now() || (b.role==='manager' ? !p.wants_manager : !p.wants_coach)) fail('Persona non abilitata o gara non futura.',409);
+    try { await env.DB.batch([
+      statement(env.DB, "INSERT INTO staff_bookings(game_key,person_id,role,source,created_at) VALUES(?,?,?,'patty',?) ON CONFLICT(game_key,person_id) DO UPDATE SET role=excluded.role,source=excluded.source,created_at=excluded.created_at", b.game_key,b.person_id,b.role,at()),
+      audit(env.DB,actor,'staff_booking_created_by_patty',b.game_key,{person_id:b.person_id,role:b.role}),
+    ]); } catch(e) { fail(dbMessage(e),409); }
+    return json({ok:true});
   }
   if (path === '/api/admin/assign' && req.method === 'POST') {
     const b = await body(req);
@@ -1587,7 +1645,7 @@ export default {
     const path = new URL(req.url).pathname;
     if (
       req.method === 'POST' && res.ok && env.LIVE_SYNC && ctx?.waitUntil &&
-      (['/api/book', '/api/cancel', '/api/admin/assign',
+      (['/api/book', '/api/cancel', '/api/staff-book', '/api/staff-cancel', '/api/admin/staff-booking', '/api/admin/person/roles', '/api/admin/assign',
         '/api/admin/fixed', '/api/admin/fixed/apply',
         '/api/admin/game', '/api/admin/game/flip-home', '/api/admin/override/reset',
         '/api/admin/manual', '/api/admin/team', '/api/admin/person', '/api/admin/delegate',
