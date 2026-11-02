@@ -8,6 +8,8 @@ let state = {
     games: [],
     teams: [],
     assignments: [],
+    staffBookings: [],
+    staffTeamIds: [],
     user: null,
     csrf: null,
     week: null,
@@ -16,6 +18,7 @@ let state = {
   },
   currentGame = null;
 let selectedTeamId = '';
+let staffHomeExpiryTimer = null;
 
 /* Vista Pubblico in prova: nessuna modifica ai ruoli o alle prenotazioni.
    Le preferenze sono salvate per account su questo dispositivo. */
@@ -379,6 +382,9 @@ async function load() {
 }
 function render() {
   refreshViewOwner();
+  if (staffHomeExpiryTimer) clearTimeout(staffHomeExpiryTimer);
+  const nextStaffExpiry = (state.games || []).filter(g => (state.staffTeamIds || []).includes(String(g.team_id)) && Number(g.start_ts) > Date.now()).map(g => Number(g.start_ts)).sort((a,b)=>a-b)[0];
+  if (nextStaffExpiry) staffHomeExpiryTimer = setTimeout(() => render(), Math.min(2147483000, nextStaffExpiry - Date.now() + 50));
   const viewerOnly = !!state.user?.id && !hasOperationalRole(state.user) && !state.user.admin;
   $('#view-switch').hidden = !!state.user?.admin;
   $('#view-mode').innerHTML = viewerOnly
@@ -463,12 +469,12 @@ function render() {
     fullWeek = rows;
   } else {
     rows = games.filter((g) => weekOf(g.date) === w);
-    if (!state.week)
-      rows = rows.filter(
-        (g) =>
-          g.is_home &&
-          (roleState(g, 'referee') === 'missing' || roleState(g, 'scorer') === 'missing' || myBooking(g)),
-      );
+    if (!state.week) {
+      const homeWork = games.filter(g => g.is_home && weekOf(g.date) === w && (roleState(g,'referee') === 'missing' || roleState(g,'scorer') === 'missing' || myBooking(g)));
+      const staffBookedKeys = new Set((state.staffBookings || []).map(x => x.game_key));
+      const staffUpcoming = state.user?.id ? games.filter(g => Number(g.start_ts) > Date.now() && ((state.staffTeamIds || []).includes(String(g.team_id)) || staffBookedKeys.has(g.game_key))) : [];
+      rows = [...new Map([...homeWork, ...staffUpcoming].map(g => [g.game_key,g])).values()];
+    }
     rows.sort((a, b) =>
       (a.date + a.time + a.game_number).localeCompare(b.date + b.time + b.game_number),
     );
@@ -495,7 +501,7 @@ function render() {
     );
   $('#summary').textContent = selectedTeam
     ? `${rows.length} gare della squadra · da coprire: ARB ${miss('referee')} · REF ${miss('scorer')}`
-    : `${rows.length} gare · da coprire: ARB ${miss('referee')} · REF ${miss('scorer')}`;
+    : `${rows.length} gare · da coprire: ARB ${miss('referee')} · REF ${miss('scorer')}` + (!state.week && state.staffTeamIds?.length ? ` · Le mie squadre: ${rows.filter(g => state.staffTeamIds.includes(String(g.team_id)) && g.start_ts > Date.now()).length}` : '');
   if (selectedTeam) {
     const dated = rows.filter((g) => g.date);
     const undated = rows.filter((g) => !g.date);
@@ -734,7 +740,7 @@ function rowHTML(g, newDay = false) {
     seats = g.is_home
       ? `<span class="seats">${mark('referee', 'Arb')}${mark('scorer', 'Ref')}</span>`
       : '<span class="seats"><span class="tag-away">Trasferta</span></span>';
-  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}${booked ? ' my-booking' : staffColor}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(dateLabel)}</b><em>${esc(timeLabel)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
+  return `<article class="fixture${g.is_home ? '' : ' away'}${newDay ? ' new-day' : ''}${booked || bookedStaff ? ' my-booking' : staffColor}" data-game-key="${esc(g.game_key)}"><div class="mobile"><span class="identity"><span class="cat${longCat ? ' cat--long' : ''}">${esc(cat)}</span><span class="source">${esc(g.source)}</span><span class="short">${esc(t.short_name || g.our_team_name)}</span></span><span class="when"><b>${esc(dateLabel)}</b><em>${esc(timeLabel)}</em></span><span class="teams" title="${esc(g.home_team + ' – ' + g.away_team)}"><span class="t${g.is_home ? ' us' : ''}">${esc(g.home_team)}</span> – <span class="t${g.is_home ? '' : ' us'}">${esc(g.away_team)}</span>${score}${whoHtml}</span>${seats}</div><button class="open-game" data-open="${esc(g.game_key)}" aria-label="Apri la scheda: ${esc(g.home_team)} – ${esc(g.away_team)}"></button></article>`;
 }
 function modal(title, html) {
   $('#dialog-title').textContent = title;
@@ -873,6 +879,13 @@ async function showGame(key) {
         seats += `<div class="seat"><span>${dot(g, r)} <b>${label}${required(g, r) > 1 ? ' ' + slot : ''}:</b> ${isFederal ? (r === 'referee' ? 'Arbitro federale' : 'Refertista federale') : a ? esc(a.first_name + ' ' + a.last_name) : 'Posto libero'}</span>${currentAction}</div>`;
       }
   }
+  const myStaffBooking = (state.staffBookings || []).find(x => x.game_key === key);
+  const staffCanBook = !publicReadOnly && state.user?.id && !state.user.admin && (state.user.wants_coach || state.user.wants_manager) && Number(g.start_ts) > Date.now();
+  const staffChoices = [ ...(state.user?.wants_coach ? [['coach1','Allenatore'],['coach2','Secondo allenatore']] : []), ...(state.user?.wants_manager ? [['manager','Dirigente']] : []) ];
+  const staffBookingBlock = publicReadOnly ? '' : state.user?.admin
+    ? `<div class="staff"><h3>Presenze staff</h3>${(state.admin?.staffBookings || []).filter(x => x.game_key === key).map(x => `<div class="staff-line"><small>${esc(x.role === 'manager' ? 'Dirigente' : x.role === 'coach1' ? 'Allenatore' : 'Secondo allenatore')}</small><p>${esc(x.first_name+' '+x.last_name)}</p><button type="button" data-staff-admin-remove data-game="${esc(key)}" data-person="${esc(x.person_id)}">Rimuovi</button></div>`).join('') || '<p>Nessuna presenza prenotata.</p>'}<form class="staff-inline-form" data-staff-admin-form data-game="${esc(key)}">${select('Persona','person_id',[['','Scegli persona'],...(state.admin?.people||[]).filter(p=>p.approved&&(p.wants_coach||p.wants_manager)).map(p=>[p.id,p.first_name+' '+p.last_name])])}${select('Ruolo','role',[['coach1','Allenatore'],['coach2','Secondo allenatore'],['manager','Dirigente']])}<button type="submit">Aggiungi o sostituisci</button></form></div>`
+    : myStaffBooking ? `<div class="staff"><h3>La mia presenza</h3><p>${esc(myStaffBooking.role === 'manager' ? 'Dirigente' : myStaffBooking.role === 'coach1' ? 'Allenatore' : 'Secondo allenatore')}</p>${Number(g.start_ts)>Date.now()?`<button type="button" data-staff-cancel data-game="${esc(key)}">Annulla presenza</button>`:''}</div>`
+    : staffCanBook ? `<div class="staff"><h3>Prenota la mia presenza</h3>${select('Ruolo staff','staff-role',staffChoices)}<button type="button" data-staff-book data-game="${esc(key)}">Prenota</button></div>` : '';
   const addrParts = [g.venue, ...String(g.address || '').split(/\s+-\s+/)].map((x) => (x || '').trim()).filter(Boolean).slice(0, 3);
   const mapsLink = addrParts.length
     ? `<a class="maps pin" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((g.venue || '') + ' ' + (g.address || ''))}" target="_blank" rel="noopener" aria-label="Apri in Google Maps" title="Apri in Google Maps"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></a>`
@@ -896,7 +909,7 @@ async function showGame(key) {
         ${g.staff_override ? `<button type="button" class="staff-reset" data-staff-reset data-game="${esc(key)}">Ripristina lo staff della squadra</button>` : ''}
       </form></div>`
     : `<div class="staff"><h3>Staff squadra</h3>${staffLine('Allenatore', staff.coach1 || 'Da inserire')}${staffLine('Secondo allenatore', staff.coach2)}${managers.length ? managers.map((m, i) => staffLine(i ? '' : managers.length > 1 ? 'Dirigenti' : 'Dirigente', m)).join('') : staffLine('Dirigenti', 'Da inserire')}</div>`;
-  let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${publicReadOnly ? '' : g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="strip"><span>Gara <b>${esc(g.game_number || 'n. non presente')}</b></span><span class="pill ${g.is_home ? 'home' : 'away'}">${g.is_home ? 'Casa' : 'Trasferta'}</span><span>${esc(g.source)}</span></div>${placeBlock}${staffBlock}${resultCard(g)}${g.notes ? card('Note', g.notes) : ''}`;
+  let html = `<div class="sheet-hero">${esc(g.date ? shortDate(g.date) + '/' + g.date.slice(0, 4) : 'Data da definire')} · ${esc(g.time || 'Ora da definire')} · ${esc(g.category)} · ${esc(g.source)}<strong>${esc(g.home_team)} – ${esc(g.away_team)}</strong></div>${publicReadOnly ? '' : g.is_home ? '<h3>Prenotazioni · Gare in casa</h3>' + seats : '<p class="notice">Trasferta: non sono richiesti arbitro e refertista interni.</p>'}<div class="strip"><span>Gara <b>${esc(g.game_number || 'n. non presente')}</b></span><span class="pill ${g.is_home ? 'home' : 'away'}">${g.is_home ? 'Casa' : 'Trasferta'}</span><span>${esc(g.source)}</span></div>${placeBlock}${staffBlock}${staffBookingBlock}${resultCard(g)}${g.notes ? card('Note', g.notes) : ''}`;
   if (state.user?.admin) {
     // Ogni correzione di una singola partita avviene nella sua scheda.
     // Una gara incompleta deve ricevere data e ora insieme, senza duplicare moduli altrove.
@@ -1344,6 +1357,11 @@ async function submit(f) {
   notice('Salvato.', !!reopen);
 }
 document.addEventListener('submit', async (e) => {
+  if (e.target.matches('form[data-staff-admin-form]')) {
+    e.preventDefault(); const f=e.target; const fd=new FormData(f); const key=f.dataset.game;
+    try { await api('admin/staff-booking',{action:'create',game_key:key,person_id:fd.get('person_id'),role:fd.get('role')}); await load(); await showGame(key); notice('Presenza staff salvata.',true); } catch(error) { notice(error.message,true); }
+    return;
+  }
   if (!e.target.matches('form[data-form]')) return;
   e.preventDefault();
   const f = e.target;
@@ -1418,7 +1436,14 @@ document.addEventListener('click', async (e) => {
         await load();
       } else access(true);
     } else if (b.dataset.open) await showGame(b.dataset.open);
-    else if (b.hasAttribute('data-book') || b.hasAttribute('data-admin-book') || b.hasAttribute('data-cancel')) {
+    else if (b.hasAttribute('data-staff-admin-remove')) {
+      await api('admin/staff-booking',{action:'remove',game_key:b.dataset.game,person_id:b.dataset.person}); await load(); await showGame(b.dataset.game); notice('Presenza rimossa.',true);
+    } else if (b.hasAttribute('data-staff-book')) {
+      await api('staff-book',{game_key:b.dataset.game,role:b.closest('.staff')?.querySelector('[name=staff-role]')?.value});
+      await load(); await showGame(b.dataset.game); notice('Presenza confermata.',true);
+    } else if (b.hasAttribute('data-staff-cancel')) {
+      await api('staff-cancel',{game_key:b.dataset.game}); await load(); await showGame(b.dataset.game); notice('Presenza annullata.',true);
+    } else if (b.hasAttribute('data-book') || b.hasAttribute('data-admin-book') || b.hasAttribute('data-cancel')) {
       const pattyBooking = b.hasAttribute('data-admin-book');
       const booking = b.hasAttribute('data-book') || pattyBooking;
       const selectedPerson = pattyBooking ? b.closest('.patty-seat-book')?.querySelector('select')?.value : '';
