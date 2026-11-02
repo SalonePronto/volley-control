@@ -472,7 +472,7 @@ function render() {
     if (!state.week) {
       const homeWork = games.filter(g => g.is_home && weekOf(g.date) === w && (roleState(g,'referee') === 'missing' || roleState(g,'scorer') === 'missing' || myBooking(g)));
       const staffBookedKeys = new Set((state.staffBookings || []).map(x => x.game_key));
-      const staffUpcoming = state.user?.id ? games.filter(g => Number(g.start_ts) > Date.now() && ((state.staffTeamIds || []).includes(String(g.team_id)) || staffBookedKeys.has(g.game_key))) : [];
+      const staffUpcoming = state.user?.id ? games.filter(g => weekOf(g.date) === w && Number(g.start_ts) > Date.now() && ((state.staffTeamIds || []).includes(String(g.team_id)) || staffBookedKeys.has(g.game_key))) : [];
       rows = [...new Map([...homeWork, ...staffUpcoming].map(g => [g.game_key,g])).values()];
     }
     rows.sort((a, b) =>
