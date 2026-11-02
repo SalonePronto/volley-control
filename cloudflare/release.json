@@ -1,7 +1,7 @@
 {
   "application": "VOLLEY CONTROL",
   "environment": "staging",
-  "release": "cf-staging-2026-10-27.11",
+  "release": "cf-staging-2026-11-02.1",
   "source_base_commit": "c56548a29b9fbdab9bde8d217a85071a8fe19b29",
   "target_worker": "volley-control-dev",
   "target_database": "volley-control-dev-db",
@@ -21,7 +21,7 @@
   },
   "statements": {
     "path": "cloudflare/d1-statements.json",
-    "count": 55,
+    "count": 59,
     "max_per_api_batch": 15
   },
   "migrations": [
@@ -67,6 +67,11 @@
     {
       "file": "0009_team_roster.sql",
       "statements": 9
+    },
+    {
+      "file": "0011_staff_bookings.sql",
+      "sha256": "pending-refresh",
+      "statements": 4
     }
   ],
   "bindings": [
