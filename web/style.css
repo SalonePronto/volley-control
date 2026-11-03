@@ -720,3 +720,28 @@ html, body {
   }
   .public-status button { font-size: clamp(10px, 2.9vw, 12px); padding: 3px 2px; }
 }
+
+/* VOLLEY CONTROL — barra orizzontale delle viste pubbliche */
+.public-status {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #a8b4c7 transparent;
+  scroll-snap-type: x proximity;
+  padding: 0 0 3px;
+}
+.public-status button {
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+  white-space: nowrap;
+  scroll-snap-align: start;
+}
