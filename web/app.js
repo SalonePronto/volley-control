@@ -735,6 +735,7 @@ function rowHTML(g, newDay = false) {
       .join(' · '),
     whoHtml = who ? '<small class="who">' + esc(who) + '</small>' : '',
     booked = myBooking(g),
+    bookedStaff = (state.staffBookings || []).some((booking) => booking.game_key === g.game_key),
     staffColor = booked ? '' : myStaffColor(g, t),
     mark = (r, label) => `<span class="mark">${dot(g, r)}<small>${label}</small></span>`,
     seats = g.is_home
