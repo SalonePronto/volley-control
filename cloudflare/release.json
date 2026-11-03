@@ -11,8 +11,8 @@
   "worker": {
     "path": "cloudflare/worker.mjs",
     "main_module": "worker.mjs",
-    "sha256": "40f1f4693e1f207b7b2696fe05e8d3ae3649f878d4614af38c5d149cf5aebfbf",
-    "bytes": 304123
+    "sha256": "bd486017c6851a011399d499f15fa5f1cf349437c0539732d0142324efed945b",
+    "bytes": 311413
   },
   "schema": {
     "path": "cloudflare/schema.sql",
